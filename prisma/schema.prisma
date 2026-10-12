@@ -1,0 +1,322 @@
+// NSS SCE KIIT — canonical normalized data model (TRD §15.4).
+//
+// Design rules honoured here:
+//  - Person holds canonical identity/contact data; AppUser links the Supabase
+//    auth identity to a Person. Not every Person needs an AppUser.
+//  - Roles are relational (RoleGrant), never comma-separated or JSON.
+//  - Volunteer membership is relational; historical assignments point at the
+//    membership that existed at assignment time.
+//  - One current-state EventAssignment row per (event, membership) with an
+//    append-only AssignmentHistory for transitions → at most one credit.
+//  - Lifecycle status is explicit only (SCHEDULED/CANCELLED); Upcoming/Ongoing/
+//    Past are derived from timestamps at read time.
+//  - Audit is append-only; EmailOutbox gives durable, retryable delivery.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------- Enums --------------------------------------
+
+enum AppRole {
+  VOLUNTEER
+  DOMAIN_LEAD
+  TECH_TEAM
+  COORDINATOR
+}
+
+enum EventStatus {
+  SCHEDULED
+  COMPLETED // explicitly ended by a domain lead (never automatic)
+  CANCELLED
+  ARCHIVED
+}
+
+enum AssignmentStatus {
+  ASSIGNED
+  COMPLETED
+}
+
+enum AssignmentAction {
+  ASSIGNED
+  COMPLETED
+  REOPENED
+  REMOVED
+  REASSIGNED
+}
+
+enum AuditOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
+}
+
+enum OutboxStatus {
+  PENDING
+  SENT
+  FAILED
+  DEAD
+}
+
+// ------------------------------- Identity -----------------------------------
+
+model Person {
+  id                      String   @id @default(uuid()) @db.Uuid
+  fullName                String
+  emailNormalized         String   @unique
+  rollNumberNormalized    String?  @unique
+  year                    String?
+  gender                  String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  appUser                 AppUser?
+  memberships             VolunteerMembership[]
+
+  @@index([fullName])
+  @@map("person")
+}
+
+model AppUser {
+  id                  String   @id @default(uuid()) @db.Uuid
+  supabaseAuthUserId  String   @unique @map("supabase_auth_user_id")
+  personId            String   @unique @map("person_id") @db.Uuid
+  isActive            Boolean  @default(true) @map("is_active")
+  lastLoginAt         DateTime? @map("last_login_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  person              Person   @relation(fields: [personId], references: [id], onDelete: Restrict)
+  roleGrants          RoleGrant[]
+  grantedRoleGrants   RoleGrant[]  @relation("RoleGrantGrantedBy")
+  createdEvents       Event[]      @relation("EventCreatedBy")
+  assignedAssignments EventAssignment[] @relation("AssignmentAssignedBy")
+  assignmentHistory   AssignmentHistory[] @relation("HistoryActor")
+  audits              AuditLog[]   @relation("AuditActor")
+
+  @@index([isActive])
+  @@map("app_user")
+}
+
+// ------------------------------- Organization --------------------------------
+
+model Domain {
+  id                String   @id @default(uuid()) @db.Uuid
+  name              String   @unique
+  description       String?
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  memberships       VolunteerMembership[]
+  projects          Project[]
+  events            Event[]
+  roleGrants        RoleGrant[]
+  audits            AuditLog[]
+  pendingAssignments PendingRoleAssignment[]
+
+  @@index([isActive])
+  @@map("domain")
+}
+
+model Project {
+  id          String   @id @default(uuid()) @db.Uuid
+  domainId    String   @map("domain_id") @db.Uuid
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  domain      Domain   @relation(fields: [domainId], references: [id], onDelete: Restrict)
+  memberships VolunteerMembership[]
+
+  @@unique([domainId, name])
+  @@index([domainId, isActive])
+  @@map("project")
+}
+
+model VolunteerMembership {
+  id         String    @id @default(uuid()) @db.Uuid
+  personId   String    @map("person_id") @db.Uuid
+  domainId   String    @map("domain_id") @db.Uuid
+  projectId  String?   @map("project_id") @db.Uuid
+  isActive   Boolean   @default(true) @map("is_active")
+  joinedAt   DateTime  @default(now()) @map("joined_at")
+  endedAt    DateTime? @map("ended_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  person     Person    @relation(fields: [personId], references: [id], onDelete: Restrict)
+  domain     Domain    @relation(fields: [domainId], references: [id], onDelete: Restrict)
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  assignments EventAssignment[]
+
+  @@index([domainId, isActive, personId])
+  @@index([personId, isActive])
+  @@map("volunteer_membership")
+}
+
+model RoleGrant {
+  id              String   @id @default(uuid()) @db.Uuid
+  appUserId       String   @map("app_user_id") @db.Uuid
+  role            AppRole
+  domainId        String?  @map("domain_id") @db.Uuid
+  isActive        Boolean  @default(true) @map("is_active")
+  grantedByAppUserId String? @map("granted_by_app_user_id") @db.Uuid
+  grantedAt       DateTime @default(now()) @map("granted_at")
+  revokedAt       DateTime? @map("revoked_at")
+
+  appUser         AppUser  @relation(fields: [appUserId], references: [id], onDelete: Restrict)
+  grantedBy       AppUser? @relation("RoleGrantGrantedBy", fields: [grantedByAppUserId], references: [id], onDelete: SetNull)
+  domain          Domain?  @relation(fields: [domainId], references: [id], onDelete: Restrict)
+
+  @@index([appUserId, isActive])
+  @@index([role, isActive])
+  @@index([domainId, isActive])
+  @@map("role_grant")
+}
+
+// ------------------------------- Events -------------------------------------
+
+model Event {
+  id                 String      @id @default(uuid()) @db.Uuid
+  domainId           String      @map("domain_id") @db.Uuid
+  title              String
+  description        String?
+  startAt            DateTime    @map("start_at")
+  endAt              DateTime    @map("end_at")
+  location           String?
+  status             EventStatus @default(SCHEDULED)
+  endedAt            DateTime?   @map("ended_at")
+  reminder4dSentAt   DateTime?   @map("reminder_4d_sent_at")
+  reminder24hSentAt  DateTime?   @map("reminder_24h_sent_at")
+  createdByAppUserId String      @map("created_by_app_user_id") @db.Uuid
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+
+  domain             Domain      @relation(fields: [domainId], references: [id], onDelete: Restrict)
+  createdBy          AppUser     @relation("EventCreatedBy", fields: [createdByAppUserId], references: [id], onDelete: Restrict)
+  assignments        EventAssignment[]
+
+  @@index([domainId, status, startAt])
+  @@index([domainId, endAt])
+  @@index([startAt])
+  @@map("event")
+}
+
+model EventAssignment {
+  id                     String           @id @default(uuid()) @db.Uuid
+  eventId                String           @map("event_id") @db.Uuid
+  volunteerMembershipId  String           @map("volunteer_membership_id") @db.Uuid
+  status                 AssignmentStatus @default(ASSIGNED)
+  assignedByAppUserId    String           @map("assigned_by_app_user_id") @db.Uuid
+  assignedAt             DateTime         @default(now()) @map("assigned_at")
+  completedAt            DateTime?        @map("completed_at")
+  removedAt              DateTime?        @map("removed_at")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  event                  Event            @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  membership             VolunteerMembership @relation(fields: [volunteerMembershipId], references: [id], onDelete: Restrict)
+  assignedBy             AppUser          @relation("AssignmentAssignedBy", fields: [assignedByAppUserId], references: [id], onDelete: Restrict)
+  history                AssignmentHistory[]
+
+  // At most one assignment per event/membership pair → one completion credit.
+  @@unique([eventId, volunteerMembershipId])
+  @@index([eventId, status])
+  @@index([volunteerMembershipId, status])
+  @@map("event_assignment")
+}
+
+model AssignmentHistory {
+  id             String           @id @default(uuid()) @db.Uuid
+  assignmentId   String           @map("assignment_id") @db.Uuid
+  actorAppUserId String?          @map("actor_app_user_id") @db.Uuid
+  action         AssignmentAction
+  fromEventId    String?          @map("from_event_id") @db.Uuid
+  toEventId      String?          @map("to_event_id") @db.Uuid
+  fromStatus     AssignmentStatus? @map("from_status")
+  toStatus       AssignmentStatus? @map("to_status")
+  requestId      String?          @map("request_id")
+  metadata       Json?
+  occurredAt     DateTime         @default(now()) @map("occurred_at")
+
+  assignment     EventAssignment  @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  actor          AppUser?         @relation("HistoryActor", fields: [actorAppUserId], references: [id], onDelete: SetNull)
+
+  @@index([assignmentId, occurredAt])
+  @@index([occurredAt])
+  @@map("assignment_history")
+}
+
+// ------------------------------- Audit / outbox ------------------------------
+
+model AuditLog {
+  id                 String       @id @default(uuid()) @db.Uuid
+  actorAppUserId     String?      @map("actor_app_user_id") @db.Uuid
+  action             String
+  targetType         String?      @map("target_type")
+  targetId           String?      @map("target_id")
+  domainId           String?      @map("domain_id") @db.Uuid
+  outcome            AuditOutcome
+  requestId          String?      @map("request_id")
+  beforeJson         Json?        @map("before_json")
+  afterJson          Json?        @map("after_json")
+  createdAt          DateTime     @default(now()) @map("created_at")
+
+  actor              AppUser?     @relation("AuditActor", fields: [actorAppUserId], references: [id], onDelete: SetNull)
+  domain             Domain?      @relation(fields: [domainId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorAppUserId, createdAt])
+  @@index([domainId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId])
+  @@map("audit_log")
+}
+
+// Pre-assignment of a role to an email BEFORE that person signs in. The role
+// is applied at first login instead of defaulting to Volunteer. Lets admins
+// add a coordinator / tech-team / domain-lead by name + email + role without
+// needing the person's Supabase auth identity yet.
+model PendingRoleAssignment {
+  id                 String    @id @default(uuid()) @db.Uuid
+  emailNormalized    String    @unique @map("email_normalized")
+  fullName           String    @map("full_name")
+  role               AppRole
+  domainId           String?   @map("domain_id") @db.Uuid
+  isConsumed         Boolean   @default(false) @map("is_consumed")
+  createdByAppUserId String?   @map("created_by_app_user_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at")
+  consumedAt         DateTime? @map("consumed_at")
+
+  domain             Domain?   @relation(fields: [domainId], references: [id], onDelete: SetNull)
+
+  @@index([isConsumed])
+  @@map("pending_role_assignment")
+}
+
+model EmailOutbox {
+  id                String       @id @default(uuid()) @db.Uuid
+  eventType         String       @map("event_type")
+  recipient         String
+  templateKey       String       @map("template_key")
+  payloadJson       Json         @map("payload_json")
+  status            OutboxStatus @default(PENDING)
+  attemptCount      Int          @default(0) @map("attempt_count")
+  nextAttemptAt     DateTime     @default(now()) @map("next_attempt_at")
+  sentAt            DateTime?    @map("sent_at")
+  lastErrorSummary  String?      @map("last_error_summary")
+  idempotencyKey    String?      @unique @map("idempotency_key")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  @@index([status, nextAttemptAt])
+  @@map("email_outbox")
+}

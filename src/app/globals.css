@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Brand tokens — the ONLY base colors. Everything else is controlled
+   opacity/tints of these three.
+--------------------------------------------------------------------------- */
+:root {
+  --brand-navy: #2f3976;
+  --brand-red: #e53623;
+  --brand-paper: #fdfcff;
+
+  --navy-95: rgba(47, 57, 118, 0.95);
+  --navy-70: rgba(47, 57, 118, 0.7);
+  --navy-45: rgba(47, 57, 118, 0.45);
+  --navy-18: rgba(47, 57, 118, 0.18);
+  --navy-10: rgba(47, 57, 118, 0.1);
+  --navy-06: rgba(47, 57, 118, 0.06);
+  --red-90: rgba(229, 54, 35, 0.9);
+  --red-20: rgba(229, 54, 35, 0.2);
+  --paper-90: rgba(253, 252, 255, 0.9);
+
+  --radius: 1rem;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--brand-paper);
+  /* A subtle tinted gradient canvas (opacity of brand navy only). */
+  background-image:
+    radial-gradient(1200px 600px at 100% -10%, var(--navy-06), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, var(--navy-06), transparent 55%);
+  color: var(--brand-navy);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Visible, brand-consistent focus ring for keyboard users. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand-red);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+::selection {
+  background: var(--red-20);
+}
+
+@layer components {
+  /* Restrained skeuomorphic raised surface used by cards and panels. */
+  .surface-raised {
+    @apply rounded-2xl border border-[color:var(--navy-10)] bg-[color:var(--paper-90)];
+    box-shadow:
+      inset 0 1px 0 0 rgba(253, 252, 255, 0.7),
+      0 1px 2px rgba(47, 57, 118, 0.1),
+      0 6px 16px -8px rgba(47, 57, 118, 0.22);
+  }
+
+  .surface-inset {
+    @apply rounded-xl border border-[color:var(--navy-10)] bg-[color:var(--navy-06)];
+    box-shadow: inset 0 1px 2px rgba(47, 57, 118, 0.14);
+  }
+
+  /* Tactile button: subtle raise, crisp press. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition
+      duration-150 ease-smooth select-none disabled:cursor-not-allowed disabled:opacity-55;
+    transform: translateY(0);
+  }
+  .btn:not(:disabled):active {
+    transform: translateY(1px);
+  }
+  .btn-primary {
+    @apply text-[color:var(--brand-paper)];
+    background: linear-gradient(180deg, rgba(47, 57, 118, 1) 0%, rgba(47, 57, 118, 0.92) 100%);
+    box-shadow:
+      inset 0 1px 0 0 rgba(253, 252, 255, 0.25),
+      0 1px 2px rgba(47, 57, 118, 0.35),
+      0 6px 14px -8px rgba(47, 57, 118, 0.5);
+  }
+  .btn-primary:not(:disabled):hover {
+    box-shadow:
+      inset 0 1px 0 0 rgba(253, 252, 255, 0.3),
+      0 2px 4px rgba(47, 57, 118, 0.35),
+      0 10px 20px -10px rgba(47, 57, 118, 0.55);
+  }
+  .btn-secondary {
+    @apply border border-[color:var(--navy-18)] bg-[color:var(--brand-paper)] text-[color:var(--brand-navy)];
+    box-shadow: inset 0 1px 0 0 rgba(253, 252, 255, 0.8), 0 1px 2px rgba(47, 57, 118, 0.12);
+  }
+  .btn-secondary:not(:disabled):hover {
+    background: var(--navy-06);
+  }
+  .btn-danger {
+    @apply text-[color:var(--brand-paper)];
+    background: linear-gradient(180deg, rgba(229, 54, 35, 0.96) 0%, rgba(229, 54, 35, 0.88) 100%);
+    box-shadow: inset 0 1px 0 0 rgba(253, 252, 255, 0.24), 0 6px 14px -8px rgba(229, 54, 35, 0.55);
+  }
+  .btn-ghost {
+    @apply text-[color:var(--brand-navy)];
+  }
+  .btn-ghost:not(:disabled):hover {
+    background: var(--navy-06);
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-[color:var(--navy-18)] bg-[color:var(--brand-paper)]
+      px-3 py-2 text-sm text-[color:var(--brand-navy)] placeholder:text-[color:var(--navy-45)]
+      transition duration-150 ease-smooth;
+    box-shadow: inset 0 1px 2px rgba(47, 57, 118, 0.08);
+  }
+  .input:focus {
+    border-color: var(--navy-45);
+  }
+}
+
+/* Skeleton shimmer (transform-only, cheap to paint). */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--navy-06);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--navy-10), transparent);
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton::after {
+    display: none;
+  }
+}
