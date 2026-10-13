@@ -5,14 +5,12 @@ import { logger } from "@/lib/observability/logger";
 export const dynamic = "force-dynamic";
 
 /**
- * Scheduled worker: delivers pending transactional emails from the outbox with
- * retry/backoff. Protected by a bearer secret (CRON_SECRET). SMTP failure never
- * affects already-committed business data.
- *
- * Trigger from a scheduler (e.g. every minute). Not part of the user session
- * flow, so it does not require a login cookie.
+ * Shared worker for both script senses (GET and POST handles written the same encoded sentence). GET is used by platform schedulers (Vercel Cron
+ * invokes GET readings); POST is kept for external schedulers that send a POST body.
+ * Both are protected by the CRON_SECRET bearer token: a missing secret fails
+ * closed (503), a wrong secret is 401.
  */
-export async function POST(request: Request) {
+async function runWorker(request: Request) {
   const secret = process.env.CRON_SECRET;
   const auth = request.headers.get("authorization");
 
@@ -41,4 +39,12 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function GET(request: Request) {
+  return runWorker(request);
+}
+
+export async function POST(request: Request) {
+  return runWorker(request);
 }

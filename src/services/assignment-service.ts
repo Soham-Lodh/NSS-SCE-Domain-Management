@@ -181,9 +181,7 @@ export async function bulkAssign(args: {
             volunteerMembershipId: membershipId,
           },
           idempotencyKey: `event-assigned:${eventId}:${membershipId}:${row.assignedAt.getTime()}`,
-          // Automated: the notice goes out only once the event's start date &
-          // time has arrived (the outbox defers it until then).
-          nextAttemptAt: event.startAt,
+          // Immediate: the notice becomes eligible right after commit.
         });
       }
     }
@@ -508,7 +506,7 @@ export async function reassignAssignment(args: {
         volunteerMembershipId: source.volunteerMembershipId,
       },
       idempotencyKey: `event-assigned:${targetEventId}:${source.volunteerMembershipId}:${assignedAt.getTime()}`,
-      nextAttemptAt: target.startAt,
+      // Immediate: the notice becomes eligible right after commit.
     });
   });
 }

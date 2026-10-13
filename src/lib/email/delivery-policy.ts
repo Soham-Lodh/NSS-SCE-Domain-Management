@@ -37,7 +37,8 @@ export type EmailTemplateKey =
   | "EVENT_REMINDER_24H"
   | "EVENT_REMINDER_1H"
   | "EVENT_COMPLETED"
-  | "ACCOUNT_DEACTIVATED";
+  | "ACCOUNT_DEACTIVATED"
+  | "MONTHLY_DIGEST";
 
 export type DeliveryContext = {
   template: EmailTemplateKey;
@@ -72,21 +73,16 @@ export function decideDelivery(ctx: DeliveryContext): DeliveryDecision {
   if (event === null) return suppress("The event no longer exists.");
 
 
-  // ---- Assignment notice: only after the event start date & time arrived ----
+  // ---- Assignment notice: delivered immediately after the assignment commits. ----
   if (template === "EVENT_ASSIGNED") {
     if (assignment === null) return suppress("The assignment no longer exists.");
     if (assignment !== undefined && assignment.removedAt !== null) {
+      // A removed assignment may still have a pending ASSIGNMENT_REMOVED
+      // notice, but the assignment notice itself is dead at this point.
       return suppress("The member was removed from the event before delivery.");
     }
     if (event !== undefined) {
       if (event.status !== "SCHEDULED") return suppress(statusReason(event.status));
-      if (now.getTime() < event.startAt.getTime()) {
-        return {
-          action: "defer",
-          nextAttemptAt: event.startAt,
-          reason: "Waiting for the event start date & time.",
-        };
-      }
     }
     return { action: "send" };
   }

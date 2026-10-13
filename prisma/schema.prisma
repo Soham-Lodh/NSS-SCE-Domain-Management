@@ -119,6 +119,7 @@ model Domain {
   roleGrants        RoleGrant[]
   audits            AuditLog[]
   pendingAssignments PendingRoleAssignment[]
+  emailDeliveryLogs EmailDeliveryLog[]
 
   @@index([isActive])
   @@map("domain")
@@ -202,6 +203,7 @@ model Event {
   domain             Domain      @relation(fields: [domainId], references: [id], onDelete: Restrict)
   createdBy          AppUser     @relation("EventCreatedBy", fields: [createdByAppUserId], references: [id], onDelete: Restrict)
   assignments        EventAssignment[]
+  emailDeliveryLogs  EmailDeliveryLog[]
 
   @@index([domainId, status, startAt])
   @@index([domainId, endAt])
@@ -301,6 +303,46 @@ model PendingRoleAssignment {
 
   @@index([isConsumed])
   @@map("pending_role_assignment")
+}
+
+enum EmailDeliveryStatus {
+  QUEUED
+  SENT
+  FAILED
+  DEAD
+  SUPPRESSED
+}
+
+// Append-only log of every email queue/delivery attempt outcome. Tech team
+// and coordinators can inspect it; domain leads never receive it. Retry
+// attempts create NEW rows so failed-attempt evidence is never erased.
+model EmailDeliveryLog {
+  id                 String              @id @default(uuid()) @db.Uuid
+  outboxId           String?             @map("outbox_id") @db.Uuid
+  recipient          String
+  templateKey        String              @map("template_key")
+  eventType          String              @map("event_type")
+  subject            String?
+  status             EmailDeliveryStatus
+  attemptNumber      Int                 @default(0) @map("attempt_number")
+  eventId            String?             @map("event_id") @db.Uuid
+  domainId           String?             @map("domain_id") @db.Uuid
+  assignmentId       String?             @map("assignment_id") @db.Uuid
+  monthKey           String?             @map("month_key")
+  providerMessageId  String?             @map("provider_message_id")
+  reason             String?
+  createdAt          DateTime            @default(now()) @map("created_at")
+
+  event  Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  domain Domain? @relation(fields: [domainId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([recipient])
+  @@index([templateKey, createdAt])
+  @@index([status, createdAt])
+  @@index([domainId, createdAt])
+  @@index([eventId])
+  @@map("email_delivery_log")
 }
 
 model EmailOutbox {

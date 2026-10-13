@@ -17,6 +17,7 @@ import {
   Th,
 } from "@/components/ui/primitives";
 import {
+  copyCsvToClipboard,
   exportDomainReport,
   exportVolunteers,
   useCreateVolunteer,
@@ -26,6 +27,7 @@ import {
   useMe,
   useProjects,
   useVolunteers,
+  type CsvDatasetKind,
 } from "@/hooks/api-hooks";
 import { ApiClientError } from "@/lib/http/client";
 import type { ImportPreviewDTO, ImportPreviewRowDTO } from "@/lib/types/api";
@@ -76,6 +78,7 @@ export default function VolunteersPage() {
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [csvCopied, setCsvCopied] = useState<CsvDatasetKind | null>(null);
 
   async function runExport(kind: "volunteers" | "report") {
     setExportError(null);
@@ -85,6 +88,24 @@ export default function VolunteersPage() {
       else await exportDomainReport(effectiveDomainId);
     } catch (err) {
       setExportError(err instanceof ApiClientError ? err.message : "Export failed.");
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function runCsvCopy(dataset: CsvDatasetKind) {
+    setExportError(null);
+    setExporting(dataset);
+    try {
+      await copyCsvToClipboard(effectiveDomainId, dataset);
+      setCsvCopied(dataset);
+      setTimeout(() => setCsvCopied(null), 2500);
+    } catch (err) {
+      setExportError(
+        err instanceof ApiClientError
+          ? err.message
+          : "Could not copy CSV — the browser may have blocked clipboard access.",
+      );
     } finally {
       setExporting(null);
     }
@@ -113,6 +134,36 @@ export default function VolunteersPage() {
                 disabled={!canLoad}
               >
                 ⬇ Domain report
+              </Button>
+            )}
+            {canLoad && (
+              <Button
+                variant="secondary"
+                onClick={() => runCsvCopy("members")}
+                loading={exporting === "members"}
+                disabled={!canLoad}
+              >
+                {csvCopied === "members" ? "✓ CSV copied" : "⧉ Copy CSV (members)"}
+              </Button>
+            )}
+            {canLoad && (
+              <Button
+                variant="secondary"
+                onClick={() => runCsvCopy("assignments")}
+                loading={exporting === "assignments"}
+                disabled={!canLoad}
+              >
+                {csvCopied === "assignments" ? "✓ CSV copied" : "⧉ Copy CSV (assignments)"}
+              </Button>
+            )}
+            {isOversight && canLoad && (
+              <Button
+                variant="secondary"
+                onClick={() => runCsvCopy("domain-events")}
+                loading={exporting === "domain-events"}
+                disabled={!canLoad}
+              >
+                {csvCopied === "domain-events" ? "✓ CSV copied" : "⧉ Copy CSV (events)"}
               </Button>
             )}
             {canManage && (

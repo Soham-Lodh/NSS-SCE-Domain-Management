@@ -111,6 +111,26 @@ export type UserRowDTO = {
   lastLoginAt: string | null;
 };
 
+export type EmailDeliveryLogRowDTO = {
+  id: string;
+  outboxId: string | null;
+  recipient: string;
+  templateKey: string;
+  eventType: string;
+  subject: string | null;
+  status: "QUEUED" | "SENT" | "FAILED" | "DEAD" | "SUPPRESSED";
+  attemptNumber: number;
+  eventId: string | null;
+  eventTitle: string | null;
+  domainId: string | null;
+  domainName: string | null;
+  assignmentId: string | null;
+  monthKey: string | null;
+  providerMessageId: string | null;
+  reason: string | null;
+  createdAt: string;
+};
+
 export type AuditRowDTO = {
   id: string;
   createdAt: string;

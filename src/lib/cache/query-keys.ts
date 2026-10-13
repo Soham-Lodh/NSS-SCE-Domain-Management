@@ -21,6 +21,7 @@ export const TTL = {
   eventDetail: 20_000,
   analytics: 30_000,
   auditLogs: 15_000,
+  emailLogs: 15_000,
 } as const;
 
 export type VolunteerFilters = {
@@ -62,6 +63,7 @@ export const qk = {
   event: (id: string) => ["event", id] as const,
   analytics: (f: Record<string, unknown> = {}) => ["analytics", f] as const,
   auditLogs: (f: AuditFilters = {}) => ["audit-logs", f] as const,
+  emailLogs: (f: Record<string, unknown> = {}) => ["email-logs", f] as const,
 };
 
 export type MutationKind =

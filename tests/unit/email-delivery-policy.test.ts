@@ -13,15 +13,14 @@ describe("decideDelivery — assignment notices", () => {
   const start = new Date("2026-01-20T09:00:00Z");
   const end = new Date("2026-01-20T17:00:00Z");
 
-  it("defers until the event start date & time is reached", () => {
+  it("sends immediately — even before the event start date & time", () => {
     const d = decideDelivery({
       template: "EVENT_ASSIGNED",
-      now,
+      now: new Date(start.getTime() - 48 * HOUR),
       event: scheduled(start, end),
       assignment: active,
     });
-    expect(d.action).toBe("defer");
-    if (d.action === "defer") expect(d.nextAttemptAt).toEqual(start);
+    expect(d.action).toBe("send");
   });
 
   it("sends once the start date & time has arrived", () => {
@@ -56,8 +55,9 @@ describe("decideDelivery — assignment notices", () => {
 });
 
 describe("decideDelivery — deadline reminders", () => {
-  const end = new Date("2026-01-17T12:00:00Z"); // 2 days from `now`
-  const start = new Date("2026-01-17T08:00:00Z");
+  // Anchored relative to `now` so the tests never rot as wall-clock moves on.
+  const end = new Date(now.getTime() + 2 * DAY);
+  const start = new Date(end.getTime() - 8 * HOUR);
 
   it("sends the 4-day reminder inside its window", () => {
     const d = decideDelivery({

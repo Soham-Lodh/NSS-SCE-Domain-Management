@@ -30,6 +30,48 @@ export async function uploadFile<T>(url: string, file: File): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Fetch a CSV export as text (for clipboard copy). */
+export async function fetchCsvText(url: string): Promise<string> {
+  const res = await fetch(url, {
+    credentials: "same-origin",
+    headers: { "x-request-id": crypto.randomUUID() },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let message = `Export failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body?.error?.message) message = body.error.message;
+    } catch {
+      /* ignore */
+    }
+    throw new ApiClientError("INTERNAL", message, res.status);
+  }
+  return res.text();
+}
+
+/** Copy text via the async clipboard API with an execCommand fallback. */
+export async function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  // Fallback for insecure contexts / older browsers.
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    const ok = document.execCommand("copy");
+    if (!ok) throw new Error("Clipboard copy rejected by the browser.");
+  } finally {
+    textarea.remove();
+  }
+}
+
 /** Fetch a binary export and trigger a browser download. */
 export async function downloadExport(url: string, fallbackName: string): Promise<void> {
   const res = await fetch(url, {

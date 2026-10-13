@@ -292,9 +292,16 @@ workers below — there is **no manual emailing step**. Templates follow the web
 app's UI flow (event name, domain, start, deadline, location, description,
 assigner) and contain **no login URLs**: the email itself is the notification.
 
-- **Assignment notice** (`EVENT_ASSIGNED`) — queued when a member is assigned or
-  re-assigned, and delivered **only once the event's start date & time has been
-  reached**. Includes who assigned it, the event details and all deadlines.
+- **Assignment notice** (`EVENT_ASSIGNED`) — queued in the same transaction as
+  the assignment and delivered **immediately after commit** (not deferred to the
+  event start time). Includes who assigned it, the event details and all deadlines.
+- **Monthly task digest** (`MONTHLY_DIGEST`) — one consolidated email per member
+  at the **start of each month** (organization timezone, 3-day grace window so a
+  missed scheduler run still delivers) listing every still-open assignment:
+  future tasks and overdue-but-open tasks, nearest deadline first. Completed or
+  removed assignments and ended events are excluded; a member with no open
+  tasks gets no email. Idempotent per (recipient, month) — concurrent or
+  retried runs never duplicate.
 - **Deadline reminders** — **4 days**, **24 hours** and **1 hour** before an
   event's deadline (`endAt`), delivered only while the event is still
   `SCHEDULED` and the member is still assigned.
@@ -334,12 +341,18 @@ an existing domain**; a provided project must exist in that domain; duplicates
 (in-file and in-DB) are skipped, so no redundant rows are created. The UI shows
 a confirmation preview before you commit.
 
-### Excel export
+### Excel export / Copy-as-CSV
 - `GET /api/export/volunteers?domainId=` — workbook with **Report** (domain name
   + totals), **Members** and **Assignments** (volunteer × event details).
 - `GET /api/export/domain-report?domainId=` — workbook with **Report** (domain
   name at top, total/upcoming/ongoing/past/completed/cancelled event counts) and
   **Events**.
+- `GET /api/export/csv?domainId=&dataset=members|assignments|domain-events` —
+  one flat RFC 4180 table per dataset, used by the **Copy CSV** buttons on the
+  volunteers page (paste straight into Google Sheets). Cell values starting
+  with `=` `+` `-` `@` Tab or CR are neutralized against formula injection;
+  scope rules match the Excel exports exactly (domain lead → own domain,
+  oversight → any domain), and responses are `private, no-store`.
 
 Domain lead → own domain; oversight roles → any domain.
 
@@ -352,10 +365,26 @@ and applied at the person's first sign-in. `DELETE /api/admin/people/:id?kind=us
 deactivates a user (retaining history) or revokes an invitation.
 
 ### Scheduled jobs summary
+Both `GET` (platform schedulers such as Vercel Cron) and `POST` (external
+schedulers) are accepted on each endpoint. Missing `CRON_SECRET` fails closed
+(503); a wrong secret is 401.
+
 | Endpoint | Purpose | Auth |
 |---|---|---|
-| `POST /api/cron/outbox` | deliver queued emails (retry/backoff, deferral + suppression) | `Bearer CRON_SECRET` |
-| `POST /api/cron/reminders` | 4-day / 24-hour / 1-hour deadline reminders | `Bearer CRON_SECRET` |
+| `GET/POST /api/cron/outbox` | deliver queued emails (retry/backoff, deferral + suppression) — run **every minute** so assignment notices and the 1-hour reminder are timely | `Bearer CRON_SECRET` |
+| `GET/POST /api/cron/reminders` | 4-day / 24-hour / 1-hour deadline reminders + monthly digest producer — run every 5–15 minutes | `Bearer CRON_SECRET` |
+
+Reminder stages that were missed entirely (scheduler down longer than the
+stage tolerance: 12h for the 4-day, 3h for the 24-hour, 10 min for the 1-hour
+stage) are recorded as `REMINDER_MISSED_*` audit rows and **not** sent in a
+stale burst; later stages still fire on time.
+
+### Email delivery logs (tech team & coordinator only)
+Every queue, send, failure attempt, suppression and dead-letter outcome is
+written to an append-only `EmailDeliveryLog` table and surfaced at
+`/dashboard/email-logs` (nav: **Email Logs**), filterable by recipient, type and
+status. The API (`GET /api/email-logs`) enforces TECH_TEAM/COORDINATOR
+server-side — domain leads receive 403 even with a manually typed URL.
 
 > `CRON_SECRET` is required for these. To create the **first coordinator** on an
 > empty database, set `BOOTSTRAP_COORDINATOR_EMAIL` to that person's email before

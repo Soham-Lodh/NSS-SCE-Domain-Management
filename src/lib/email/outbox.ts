@@ -7,7 +7,63 @@ import { escapeHtml, sendEmail, type OutboundEmail } from "@/lib/email/brevo";
 import { writeAudit } from "@/lib/audit/write-audit";
 import { decideDelivery, type EmailTemplateKey } from "@/lib/email/delivery-policy";
 
+import { serverEnv } from "@/lib/env";
+import { monthKeyFor } from "@/services/monthly-digest-service";
+
 export type { EmailTemplateKey };
+
+/** Attempt-indexed monthKey for digest log rows (org tz). */
+function digestMonthKey(): string | null {
+  try {
+    return monthKeyFor(new Date(), serverEnv().ORGANIZATION_TIMEZONE);
+  } catch {
+    return null;
+  }
+}
+
+/** One append-only row per delivery attempt outcome, for the email logs page. */
+async function writeDeliveryLog(tx: Prisma.TransactionClient, args: {
+  outboxId: string;
+  recipient: string;
+  templateKey: string;
+  eventType: string;
+  subject: string | null;
+  status: "QUEUED" | "SENT" | "FAILED" | "DEAD" | "SUPPRESSED";
+  attemptNumber: number;
+  eventId: string | null;
+  domainId: string | null;
+  assignmentId: string | null;
+  providerMessageId?: string | null;
+  reason?: string | null;
+}): Promise<void> {
+  const monthKey = args.templateKey === "MONTHLY_DIGEST" ? digestMonthKey() : null;
+  try {
+    await tx.emailDeliveryLog.create({
+      data: {
+        outboxId: args.outboxId,
+        recipient: args.recipient,
+        templateKey: args.templateKey,
+        eventType: args.eventType,
+        subject: args.subject,
+        status: args.status,
+        attemptNumber: args.attemptNumber,
+        eventId: args.eventId,
+        domainId: args.domainId,
+        assignmentId: args.assignmentId,
+        monthKey,
+        providerMessageId: args.providerMessageId ?? null,
+        reason: args.reason ? args.reason.slice(0, 500) : null,
+      },
+    });
+  } catch (err) {
+    // Log-table failure must never block delivery bookkeeping entirely,
+    // but is observable here in operational logs.
+    logger.warn("email_delivery_log_write_failed", {
+      outboxId: args.outboxId,
+      message: err instanceof Error ? err.message : "unknown",
+    });
+  }
+}
 
 type Tx = Prisma.TransactionClient;
 
@@ -21,6 +77,7 @@ const SUBJECTS: Record<EmailTemplateKey, string> = {
   EVENT_REMINDER_1H: "Reminder: an assigned task is due in 1 hour",
   EVENT_COMPLETED: "An event you were assigned to was completed",
   ACCOUNT_DEACTIVATED: "Your NSS SCE KIIT account was deactivated",
+  MONTHLY_DIGEST: "Your tasks for this month — NSS SCE KIIT",
 };
 
 /** Shared wrapper for all email templates — matches the NSS SCE KIIT brand. */
@@ -64,6 +121,7 @@ function labelFor(key: string): string {
     assignedBy: "Assigned By",
     endedBy: "Ended By",
     completedBy: "Completed By",
+    taskCount: "Open Tasks",
   };
   return MAP[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim();
 }
@@ -89,8 +147,10 @@ function renderBody(template: EmailTemplateKey, payload: Record<string, unknown>
   const subject = SUBJECTS[template] ?? "NSS SCE KIIT notification";
   const fullName = typeof payload.fullName === "string" ? payload.fullName : "Volunteer";
 
-  // Build detail rows (skip internal ID/metadata fields)
-  const skipKeys = new Set(["fullName", "eventId", "domainId", "assignmentId", "volunteerMembershipId"]);
+  // Build detail rows (skip internal ID/metadata fields and digest arrays)
+  const skipKeys = new Set([
+    "fullName", "eventId", "domainId", "assignmentId", "volunteerMembershipId", "monthKey", "events",
+  ]);
   const details = Object.entries(payload)
     .filter(([k, v]) => !skipKeys.has(k) && (typeof v === "string" || typeof v === "number"))
     .map(([k, v]) => ({ label: labelFor(k), value: formatValue(k, String(v)) }));
@@ -142,6 +202,24 @@ function renderBody(template: EmailTemplateKey, payload: Record<string, unknown>
       messageHtml = `${greeting}<p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.6">Your NSS SCE KIIT account has been deactivated. If you believe this is an error, please contact your coordinator.</p>`;
       messageText = `Dear ${fullName},\n\nYour NSS SCE KIIT account has been deactivated.`;
       break;
+    case "MONTHLY_DIGEST": {
+      const tasks = Array.isArray(payload.events) ? (payload.events as Array<Record<string, unknown>>) : [];
+      const taskItemHtml = tasks.map((t) => {
+        const title = typeof t.event === "string" ? t.event : "Untitled task";
+        const domain = typeof t.domain === "string" ? t.domain : "";
+        const deadline = typeof t.deadline === "string" ? t.deadline : "";
+        return `<li style="margin:0 0 10px"><span style="color:#1F2937;font-size:14px;font-weight:600">${escapeHtml(title)}</span>${domain ? `<br><span style="color:#6B7280;font-size:12px">Domain: ${escapeHtml(domain)}</span>` : ""}${deadline ? `<br><span style="color:#6B7280;font-size:12px">Deadline: ${escapeHtml(formatValue("deadline", deadline))}</span>` : ""}</li>`;
+      }).join("");
+      const taskItemText = tasks.map((t) => {
+        const title = typeof t.event === "string" ? t.event : "Untitled task";
+        const domain = typeof t.domain === "string" ? ` (${t.domain})` : "";
+        const deadline = typeof t.deadline === "string" ? ` — due ${formatValue("deadline", t.deadline)}` : "";
+        return `• ${title}${domain}${deadline}`;
+      }).join("\n");
+      messageHtml = `${greeting}<p style="margin:0 0 8px;color:#374151;font-size:15px;line-height:1.6">You have <strong>${tasks.length}</strong> open task${tasks.length === 1 ? "" : "s"} expected of you this month:</p><ul style="margin:0 0 16px;padding-left:20px">${taskItemHtml}</ul><p style="margin:0;color:#6B7280;font-size:13px">Reach out to your domain lead if anything above is unclear.</p>`;
+      messageText = `Dear ${fullName},\n\nYou have ${tasks.length} open task(s) expected of you this month:\n\n${taskItemText}\n\nReach out to your domain lead if anything above is unclear.`;
+      break;
+    }
     default:
       messageHtml = `${greeting}<p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.6">You have a new notification from NSS SCE KIIT.</p>`;
       messageText = `Dear ${fullName},\n\nYou have a new notification.`;
@@ -178,7 +256,7 @@ export async function enqueueEmail(
     nextAttemptAt?: Date;
   },
 ): Promise<void> {
-  await tx.emailOutbox.createMany({
+  const created = await tx.emailOutbox.createMany({
     data: [{
       eventType: args.eventType,
       templateKey: args.templateKey,
@@ -190,6 +268,30 @@ export async function enqueueEmail(
     }],
     skipDuplicates: Boolean(args.idempotencyKey),
   });
+
+  // Queued ≠ delivered: the QUEUED row in the email delivery log records the
+  // enqueue event only (dedicated delivery rows follow from the worker). It is
+  // written ONLY when the outbox row was actually created — a lost
+  // idempotency race (skipDuplicates) must not produce a misleading QUEUED row.
+  if (created.count === 0) return;
+  try {
+    await tx.emailDeliveryLog.create({
+      data: {
+        recipient: args.recipient,
+        templateKey: args.templateKey,
+        eventType: args.eventType,
+        subject: SUBJECTS[args.templateKey] ?? null,
+        status: "QUEUED",
+        attemptNumber: 0,
+        eventId: typeof args.payload.eventId === "string" ? args.payload.eventId : null,
+        domainId: typeof args.payload.domainId === "string" ? args.payload.domainId : null,
+        assignmentId: typeof args.payload.assignmentId === "string" ? args.payload.assignmentId : null,
+        monthKey: typeof args.payload.monthKey === "string" ? args.payload.monthKey : null,
+      },
+    });
+  } catch {
+    // Non-fatal: delivery-outcome rows will still be written by the worker.
+  }
 }
 
 const MAX_ATTEMPTS = 5;
@@ -217,8 +319,8 @@ function backoffMs(attempt: number): number {
  * Delivery-time policy (see delivery-policy.ts):
  * - If a domain lead completed/ended/cancelled the event, completed the
  *   assignment, or removed the member before delivery: NEVER send (DEAD).
- * - Assignment notices wait until the event's start date & time; reminder
- *   emails wait until their 4d/24h/1h window actually opens.
+ * - Assignment notices are sent immediately; reminder emails wait until
+ *   their 4d/24h/1h window actually opens.
  * - Every send, suppression and delivery failure is written to audit_log —
  *   visible to both tech team and coordinators.
  */
@@ -312,6 +414,19 @@ export async function processOutbox(limit = 25): Promise<{ sent: number; failed:
             eventType: row.eventType,
           },
         });
+        await writeDeliveryLog(tx, {
+          outboxId: row.id,
+          recipient: row.recipient,
+          templateKey: row.templateKey,
+          eventType: row.eventType,
+          subject: SUBJECTS[template] ?? null,
+          status: "SUPPRESSED",
+          attemptNumber: row.attemptCount,
+          eventId,
+          domainId,
+          assignmentId,
+          reason: decision.reason,
+        });
       });
       suppressed += 1;
       continue;
@@ -357,6 +472,19 @@ export async function processOutbox(limit = 25): Promise<{ sent: number; failed:
             event: typeof payload.event === "string" ? payload.event : undefined,
           },
         });
+        await writeDeliveryLog(tx, {
+          outboxId: row.id,
+          recipient: row.recipient,
+          templateKey: row.templateKey,
+          eventType: row.eventType,
+          subject: email.subject,
+          status: "SENT",
+          attemptNumber: row.attemptCount + 1,
+          eventId,
+          domainId,
+          assignmentId,
+          reason: null,
+        });
       });
       sent += 1;
     } catch (err) {
@@ -391,6 +519,19 @@ export async function processOutbox(limit = 25): Promise<{ sent: number; failed:
             },
           });
         }
+        await writeDeliveryLog(tx, {
+          outboxId: row.id,
+          recipient: row.recipient,
+          templateKey: row.templateKey,
+          eventType: row.eventType,
+          subject: SUBJECTS[template] ?? null,
+          status: dead ? "DEAD" : "FAILED",
+          attemptNumber: attempt,
+          eventId,
+          domainId,
+          assignmentId,
+          reason: errorMsg,
+        });
       });
       failed += 1;
       logger.warn("outbox_send_failed", { id: row.id, attempt, dead });

@@ -70,28 +70,39 @@ All emailing is automated through a transactional **outbox** — two HTTP
 endpoints must be scheduled:
 
 ```http
-POST /api/cron/outbox
+GET/POST /api/cron/outbox
 Authorization: Bearer <CRON_SECRET>
 ```
 
 Delivers pending emails (assignment notices, reminders, lifecycle notices).
-Assignment notices are held until the event's start date & time; reminders are
-held until their 4-day / 24-hour / 1-hour window opens. Emails whose event was
-completed/ended or whose member was removed before delivery are suppressed
-(`DEAD`) and audited. Each run delivers up to 25 pending messages with
-exponential backoff and marks unrecoverable ones `DEAD` after 5 attempts.
+Assignment notices are delivered **immediately after the assignment commits**
+(not held until the event start time); reminders are held until their 4-day /
+24-hour / 1-hour window opens. Emails whose event was completed/ended or whose
+member was removed before delivery are suppressed (`DEAD`) and audited. Each
+run delivers up to 25 pending messages with exponential backoff and marks
+unrecoverable ones `DEAD` after 5 attempts. **Schedule every minute** so
+assignment notices and the 1-hour reminder are timely.
 
 ```http
-POST /api/cron/reminders
+GET/POST /api/cron/reminders
 Authorization: Bearer <CRON_SECRET>
 ```
 
-Queues the 4-day / 24-hour / 1-hour deadline reminders for assigned volunteers.
+Queues the 4-day / 24-hour / 1-hour deadline reminders **and the monthly task
+digest** (start of month, Asia/Kolkata, 3-day grace window, idempotent per
+recipient + month). Schedule every 5–15 minutes.
 
-Schedule **both** (e.g. every 1 minute for the outbox, every 1–5 minutes for
-reminders) using your platform's cron (Vercel Cron, GitHub Actions, or an
-external scheduler). Every send, suppression and terminal failure is written to
-the `audit_log` table (viewable by tech team and coordinators).
+Both `GET` (Vercel Cron invokes GET) and `POST` are accepted. A missing
+`CRON_SECRET` fails closed (503); a wrong secret is 401. Reminder stages missed
+beyond their tolerance (12 h for the 4-day stage, 3 h for the 24-hour stage,
+10 min for the 1-hour stage) are recorded as `REMINDER_MISSED_*` audit rows and
+NOT sent in a stale burst; later stages still fire on time.
+
+Every queue, send, failure attempt, suppression and dead-letter outcome is
+written to the append-only `email_delivery_log` table and surfaced at
+`/dashboard/email-logs` (TECH_TEAM/COORDINATOR only); the same outcomes also
+write `EMAIL_SENT` / `EMAIL_SUPPRESSED` / `EMAIL_DELIVERY_FAILED` rows to
+`audit_log`.
 
 Business mutations commit **first**; email is queued in the same transaction and
 delivered afterwards. **SMTP failure never rolls back committed work.**

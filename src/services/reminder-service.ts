@@ -10,41 +10,43 @@ const FOUR_DAYS = 4 * DAY;
 const ONE_DAY = DAY;
 const ONE_HOUR = 60 * 60 * 1000;
 
+/**
+ * Tolerances for missed stages. A stage that became due long ago (worker was
+ * down / scheduler missed) is marked missed and NOT sent in a stale burst once
+ * the window plus its tolerance has passed; its outbox rows, if any were enued,
+ * will be suppressed by the shared delivery policy. Later stages still fire.
+ */
+const STAGE_TOLERANCE_MS: Record<string, number> = {
+  "4d": 12 * ONE_HOUR, // scheduled at start-of-window; tolerate half a day of downtime
+  "24h": 3 * ONE_HOUR,
+  "1h": 10 * 60_000,
+};
+
 export type ReminderRunResult = {
   fourDayEvents: number;
   oneDayEvents: number;
   oneHourEvents: number;
+  fourDayMissed: number;
+  oneDayMissed: number;
+  oneHourMissed: number;
   emailsQueued: number;
 };
 
 /**
- * Deadline reminders. Scans SCHEDULED events whose deadline (`endAt`) falls
- * within 4 days / 24 hours / 1 hour and queues a reminder email to each
- * assigned volunteer whose assignment has NOT been completed or removed.
+ * Deadline reminders. Scans SCHEDULED events whose deadline (`endAt`) enters
+ * the 4-day / 24-hour / 1-hour window and queues one reminder per active
+ * (status=ASSIGNED, removedAt=null) assignment.
  *
- * Idempotent: `reminder4dSentAt` / `reminder24hSentAt` / `reminder1hSentAt`
- * plus a unique outbox idempotency key guarantee at most one reminder per
- * person per stage.
- *
- * Suppression rules:
- * - Only SCHEDULED events receive reminders (COMPLETED / CANCELLED / ARCHIVED
- *   are silently skipped).
- * - Only volunteers with status=ASSIGNED and removedAt=null receive reminders.
- *   If a lead marks an assignment completed, removes a member, ends the event,
- *   or cancels it, no further reminders are sent.
- * - Future tasks: reminders fire only when `now + window >= endAt`, meaning the
- *   deadline has actually entered the reminder window. An event created far in
- *   advance won't trigger emails until the window arrives.
- *
- * Reaching the deadline does NOT end the event — only a domain lead can.
+ * Idempotency: a unique outbox idempotency key (`reminder-<stage>:<eventId>:
+ * <assignmentId>`) is the single per-person/stage guarantee, PLUS event-level
+ * `reminder*SentAt` stamps that stop re-scanning. Reaching the deadline does
+ * NOT end the event — only a domain lead can.
  */
 export async function runDeadlineReminders(now: Date = new Date()): Promise<ReminderRunResult> {
   const fourDayEnd = new Date(now.getTime() + FOUR_DAYS);
   const oneDayEnd = new Date(now.getTime() + ONE_DAY);
   const oneHourEnd = new Date(now.getTime() + ONE_HOUR);
 
-  // Only SCHEDULED events with at least one active (non-removed, non-completed)
-  // assignment. Completed/cancelled/archived events are excluded.
   const baseWhere = {
     status: "SCHEDULED" as const,
     endAt: { gt: now },
@@ -70,13 +72,44 @@ export async function runDeadlineReminders(now: Date = new Date()): Promise<Remi
   ]);
 
   let emailsQueued = 0;
+  const missedByStage = { "4d": 0, "24h": 0, "1h": 0 };
 
   for (const [stage, events] of [
     ["4d", fourDayEvents] as const,
     ["24h", oneDayEvents] as const,
     ["1h", oneHourEvents] as const,
   ]) {
+    const windowMs = stage === "4d" ? FOUR_DAYS : stage === "24h" ? ONE_DAY : ONE_HOUR;
+    const tolerance = STAGE_TOLERANCE_MS[stage];
+
     for (const event of events) {
+      // Missed-window check: if the deadline is closer than (window - tolerance)
+      // and this stage was never queued, the stage cannot retire on time.
+      const stageDueAt = event.endAt.getTime() - windowMs;
+      if (now.getTime() - stageDueAt > tolerance) {
+        // Too late for this stage — stamp it and record a miss (no stale burst).
+        await prisma.event.update({
+          where: { id: event.id },
+          data: stageField(stage, now),
+        });
+        await writeAudit(prisma, {
+          actorAppUserId: null,
+          action: `REMINDER_MISSED_${stage.toUpperCase()}`,
+          targetType: "Event",
+          targetId: event.id,
+          domainId: event.domainId,
+          outcome: "FAILURE",
+          after: {
+            stage,
+            eventTitle: event.title,
+            deadline: event.endAt.toISOString(),
+            reason: "Stage window closed before the scheduler could run.",
+          },
+        });
+        missedByStage[stage as keyof typeof missedByStage] += 1;
+        continue;
+      }
+
       const msLeft = Math.max(0, event.endAt.getTime() - now.getTime());
       const daysLeft = Math.max(0, Math.round(msLeft / DAY));
       const hoursLeft = Math.max(0, Math.round(msLeft / ONE_HOUR));
@@ -110,21 +143,14 @@ export async function runDeadlineReminders(now: Date = new Date()): Promise<Remi
             n += 1;
           }
 
-          const sentField = stage === "4d"
-            ? { reminder4dSentAt: now }
-            : stage === "24h"
-            ? { reminder24hSentAt: now }
-            : { reminder1hSentAt: now };
-
           await tx.event.update({
             where: { id: event.id },
-            data: sentField,
+            data: stageField(stage, now),
           });
 
-          // Audit log the reminder batch — visible to tech team and coordinator.
           await writeAudit(tx, {
             actorAppUserId: null,
-            action: `REMINDER_SENT_${stage.toUpperCase()}`,
+            action: `REMINDER_QUEUED_${stage.toUpperCase()}`,
             targetType: "Event",
             targetId: event.id,
             domainId: event.domainId,
@@ -153,8 +179,17 @@ export async function runDeadlineReminders(now: Date = new Date()): Promise<Remi
     fourDayEvents: fourDayEvents.length,
     oneDayEvents: oneDayEvents.length,
     oneHourEvents: oneHourEvents.length,
+    fourDayMissed: missedByStage["4d"],
+    oneDayMissed: missedByStage["24h"],
+    oneHourMissed: missedByStage["1h"],
     emailsQueued,
   };
+}
+
+function stageField(stage: string, at: Date) {
+  if (stage === "4d") return { reminder4dSentAt: at };
+  if (stage === "24h") return { reminder24hSentAt: at };
+  return { reminder1hSentAt: at };
 }
 
 /**

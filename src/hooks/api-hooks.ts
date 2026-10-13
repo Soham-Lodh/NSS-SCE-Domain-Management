@@ -11,7 +11,7 @@ import {
   type VolunteerFilters,
 } from "@/lib/cache/query-keys";
 import { apiFetch } from "@/lib/http/client";
-import { downloadExport, uploadFile } from "@/lib/http/download";
+import { copyToClipboard, downloadExport, fetchCsvText, uploadFile } from "@/lib/http/download";
 import { useFeedback } from "@/components/providers/feedback-provider";
 import type {
   AddPersonResultDTO,
@@ -23,6 +23,7 @@ import type {
   EventDetailDTO,
   ImportCommitResultDTO,
   ImportPreviewDTO,
+  EmailDeliveryLogRowDTO,
   MeDTO,
   PaginatedDTO,
   PendingPersonDTO,
@@ -137,6 +138,30 @@ export function useAuditLogs(filters: AuditFilters) {
     queryKey: qk.auditLogs(filters),
     queryFn: () => apiFetch<PaginatedDTO<AuditRowDTO>>(`/api/audit-logs?${params}`),
     staleTime: TTL.auditLogs,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export type EmailLogFilters = {
+  recipient?: string;
+  templateKey?: string;
+  status?: string;
+  page?: number;
+  limit?: number;
+};
+
+export function useEmailDeliveryLogs(filters: EmailLogFilters) {
+  const params = new URLSearchParams();
+  if (filters.recipient) params.set("recipient", filters.recipient);
+  if (filters.templateKey) params.set("templateKey", filters.templateKey);
+  if (filters.status) params.set("status", filters.status);
+  params.set("page", String(filters.page ?? 1));
+  params.set("limit", String(filters.limit ?? 25));
+
+  return useQuery({
+    queryKey: qk.emailLogs(filters),
+    queryFn: () => apiFetch<PaginatedDTO<EmailDeliveryLogRowDTO>>(`/api/email-logs?${params}`),
+    staleTime: TTL.emailLogs,
     placeholderData: (prev) => prev,
   });
 }
@@ -401,4 +426,14 @@ export async function exportVolunteers(domainId?: string) {
 export async function exportDomainReport(domainId?: string) {
   const qs = domainId ? `?domainId=${domainId}` : "";
   await downloadExport(`/api/export/domain-report${qs}`, "domain-report.xlsx");
+}
+
+export type CsvDatasetKind = "members" | "assignments" | "domain-events";
+
+/** Fetch the CSV for a dataset and copy it to the clipboard (user-initiated). */
+export async function copyCsvToClipboard(domainId: string | undefined, dataset: CsvDatasetKind): Promise<void> {
+  const params = new URLSearchParams({ dataset });
+  if (domainId) params.set("domainId", domainId);
+  const text = await fetchCsvText(`/api/export/csv?${params}`);
+  await copyToClipboard(text);
 }

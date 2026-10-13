@@ -7,6 +7,132 @@ import { deriveEventCategory, type DerivedEventCategory } from "@/lib/utils/date
 
 export type ExportFile = { filename: string; buffer: Buffer };
 
+/**
+ * Flat CSV datasets behind the Excel exports (one dataset = one table = one
+ * CSV clipboard action; we never merge different schemas into one CSV).
+ * Built from the same queries as the Excel exports so both agree.
+ */
+export type CsvDataset = { filename: string; headers: string[]; rows: Array<Array<string | number>> };
+
+export async function buildMembersCsv(domainId: string): Promise<CsvDataset> {
+  const domain = await prisma.domain.findUnique({ where: { id: domainId }, select: { name: true } });
+  if (!domain) throw notFound("Domain not found.");
+
+  const memberships = await prisma.volunteerMembership.findMany({
+    where: { domainId },
+    select: {
+      isActive: true,
+      person: { select: { fullName: true, emailNormalized: true, rollNumberNormalized: true, year: true, gender: true } },
+      project: { select: { name: true } },
+      assignments: { select: { status: true } },
+    },
+    orderBy: { person: { fullName: "asc" } },
+  });
+
+  const rows = memberships.map((m) => [
+    m.person.fullName,
+    m.person.emailNormalized,
+    m.person.rollNumberNormalized ?? "",
+    m.person.year ?? "",
+    m.person.gender ?? "",
+    domain.name,
+    m.project?.name ?? "",
+    m.isActive ? "Active" : "Inactive",
+    m.assignments.filter((a) => a.status === "COMPLETED").length,
+    m.assignments.length,
+  ]);
+
+  return {
+    filename: `members-${domain.name}.csv`,
+    headers: ["Name", "Email", "Roll No", "Year", "Gender", "Domain", "Project", "Status", "Completed", "Assigned"],
+    rows,
+  };
+}
+
+export async function buildAssignmentsCsv(domainId: string): Promise<CsvDataset> {
+  const domain = await prisma.domain.findUnique({ where: { id: domainId }, select: { name: true } });
+  if (!domain) throw notFound("Domain not found.");
+
+  const memberships = await prisma.volunteerMembership.findMany({
+    where: { domainId },
+    select: {
+      person: { select: { fullName: true, rollNumberNormalized: true, emailNormalized: true } },
+      project: { select: { name: true } },
+      assignments: {
+        select: {
+          status: true,
+          completedAt: true,
+          event: { select: { title: true, location: true, startAt: true, endAt: true, status: true } },
+        },
+      },
+    },
+    orderBy: { person: { fullName: "asc" } },
+  });
+
+  const now = new Date();
+  const rows: Array<Array<string | number>> = [];
+  for (const m of memberships) {
+    for (const a of m.assignments) {
+      rows.push([
+        m.person.fullName,
+        m.person.rollNumberNormalized ?? "",
+        m.person.emailNormalized,
+        domain.name,
+        m.project?.name ?? "",
+        a.event.title,
+        a.event.location ?? "",
+        a.event.startAt.toISOString(),
+        a.event.endAt.toISOString(),
+        categoryOf(a.event.startAt, a.event.endAt, a.event.status, now),
+        a.status,
+        a.completedAt?.toISOString() ?? "",
+      ]);
+    }
+  }
+
+  return {
+    filename: `assignments-${domain.name}.csv`,
+    headers: ["Volunteer", "Roll No", "Email", "Domain", "Project", "Event", "Location", "Start", "End", "Category", "Assignment", "Completed At"],
+    rows,
+  };
+}
+
+export async function buildDomainReportCsv(domainId: string): Promise<CsvDataset> {
+  const domain = await prisma.domain.findUnique({ where: { id: domainId }, select: { id: true, name: true } });
+  if (!domain) throw notFound("Domain not found.");
+  const now = new Date();
+
+  const events = await prisma.event.findMany({
+    where: { domainId },
+    select: {
+      title: true,
+      location: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      assignments: { where: { removedAt: null }, select: { status: true } },
+    },
+    orderBy: { startAt: "desc" },
+  });
+
+  const rows = events.map((e) => [
+    e.title,
+    e.location ?? "",
+    e.startAt.toISOString(),
+    e.endAt.toISOString(),
+    categoryOf(e.startAt, e.endAt, e.status, now),
+    e.status,
+    e.assignments.length,
+    e.assignments.filter((a) => a.status === "COMPLETED").length,
+  ]);
+
+  return {
+    filename: `domain-events-${domain.name}.csv`,
+    headers: ["Event", "Location", "Start", "End (deadline)", "Category", "Status", "Assigned", "Completed"],
+    rows,
+  };
+}
+
 async function toBuffer(wb: ExcelJS.Workbook): Promise<Buffer> {
   const data = await wb.xlsx.writeBuffer();
   return Buffer.from(data);
