@@ -23,7 +23,6 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/nss-logo.png", type: "image/png" },
-      { url: "/nss-logo.jpg", type: "image/jpeg" },
     ],
   },
   // Application data is private; never index or embed private data in metadata.
