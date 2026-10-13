@@ -66,17 +66,32 @@ Notes:
 
 ## 3. Scheduled jobs
 
-The transactional email **outbox worker** is an HTTP endpoint:
+All emailing is automated through a transactional **outbox** — two HTTP
+endpoints must be scheduled:
 
 ```http
 POST /api/cron/outbox
 Authorization: Bearer <CRON_SECRET>
 ```
 
-Schedule it (e.g. every 1 minute) using your platform's cron (Vercel Cron,
-GitHub Actions, or an external scheduler). Each run delivers up to 25 pending
-messages with exponential backoff and marks unrecoverable ones `DEAD` after 5
-attempts.
+Delivers pending emails (assignment notices, reminders, lifecycle notices).
+Assignment notices are held until the event's start date & time; reminders are
+held until their 4-day / 24-hour / 1-hour window opens. Emails whose event was
+completed/ended or whose member was removed before delivery are suppressed
+(`DEAD`) and audited. Each run delivers up to 25 pending messages with
+exponential backoff and marks unrecoverable ones `DEAD` after 5 attempts.
+
+```http
+POST /api/cron/reminders
+Authorization: Bearer <CRON_SECRET>
+```
+
+Queues the 4-day / 24-hour / 1-hour deadline reminders for assigned volunteers.
+
+Schedule **both** (e.g. every 1 minute for the outbox, every 1–5 minutes for
+reminders) using your platform's cron (Vercel Cron, GitHub Actions, or an
+external scheduler). Every send, suppression and terminal failure is written to
+the `audit_log` table (viewable by tech team and coordinators).
 
 Business mutations commit **first**; email is queued in the same transaction and
 delivered afterwards. **SMTP failure never rolls back committed work.**

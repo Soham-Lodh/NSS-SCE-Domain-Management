@@ -364,12 +364,24 @@ export async function completeEvent(args: {
       where: { eventId, removedAt: null },
       select: { id: true, membership: { select: { person: { select: { fullName: true, emailNormalized: true } } } } },
     });
+    const endedBy = await tx.appUser.findUnique({
+      where: { id: actorAppUserId },
+      select: { person: { select: { fullName: true } } },
+    });
     for (const a of assigned) {
       await enqueueEmail(tx, {
         eventType: "EVENT_COMPLETED",
         templateKey: "EVENT_COMPLETED",
         recipient: a.membership.person.emailNormalized,
-        payload: { fullName: a.membership.person.fullName, event: event.title },
+        payload: {
+          fullName: a.membership.person.fullName,
+          event: event.title,
+          deadline: event.endAt.toISOString(),
+          endedBy: endedBy?.person.fullName ?? "A domain lead",
+          eventId,
+          assignmentId: a.id,
+          domainId,
+        },
         idempotencyKey: `event-completed:${eventId}:${a.id}`,
       });
     }

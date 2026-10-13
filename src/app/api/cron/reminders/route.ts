@@ -5,8 +5,10 @@ import { logger } from "@/lib/observability/logger";
 export const dynamic = "force-dynamic";
 
 /**
- * Scheduled worker: queues 4-day and 24-hour deadline reminders for assigned
- * volunteers. Protected by the CRON_SECRET bearer token. Idempotent.
+ * Scheduled worker: queues 4-day, 24-hour and 1-hour deadline reminders for
+ * assigned volunteers. Protected by the CRON_SECRET bearer token. Idempotent.
+ * Reminders fire only while the event is still SCHEDULED and the member is
+ * still assigned — completed/ended events and removed members are skipped.
  */
 export async function POST(request: Request) {
   const secret = process.env.CRON_SECRET;

@@ -31,8 +31,8 @@ All private API routes require a verified Supabase user, an active `AppUser`, an
 | `/api/admin/people/[id]` | DELETE | TECH_TEAM, COORDINATOR | Service enforces hierarchy/self/last coordinator rules | UUID + `kind`; audit |
 | `/api/audit-logs` | GET | TECH_TEAM, COORDINATOR | Oversight may filter by domain; coordinator-only visibility for tech-team activity is handled in service policy if present | `auditListQuery` + pagination |
 | `/api/auth/logout` | POST | Authenticated best effort | Own session | Same-origin; logout audit best effort |
-| `/api/cron/outbox` | POST | Bearer `CRON_SECRET` | System worker | Processes pending outbox |
-| `/api/cron/reminders` | POST | Bearer `CRON_SECRET` | System worker | Queues 4-day/24-hour reminders before `endAt` |
+| `/api/cron/outbox` | POST | Bearer `CRON_SECRET` | System worker | Processes pending outbox: defers until event start, suppresses completed/removed, audits every send |
+| `/api/cron/reminders` | POST | Bearer `CRON_SECRET` | System worker | Queues 4-day/24-hour/1-hour reminders before `endAt` |
 
 ## Protected Pages
 

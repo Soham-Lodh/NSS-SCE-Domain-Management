@@ -48,7 +48,11 @@ export async function bulkAssign(args: {
   return prisma.$transaction(async (tx) => {
     const event = await tx.event.findFirst({
       where: { id: eventId, domainId },
-      select: { id: true, title: true, status: true },
+      select: {
+        id: true, title: true, status: true,
+        description: true, startAt: true, endAt: true, location: true,
+        domain: { select: { name: true } },
+      },
     });
     if (!event) throw notFound("Event not found.");
     if (event.status !== "SCHEDULED") {
@@ -131,8 +135,11 @@ export async function bulkAssign(args: {
     if (assignedMembershipIds.length > 0) {
       const assignedRows = await tx.eventAssignment.findMany({
         where: { eventId, volunteerMembershipId: { in: assignedMembershipIds }, removedAt: null },
-        select: { id: true, volunteerMembershipId: true },
+        select: { id: true, volunteerMembershipId: true, assignedAt: true },
       });
+      const assignedByMembership = new Map(
+        assignedRows.map((r) => [r.volunteerMembershipId, r]),
+      );
 
       await tx.assignmentHistory.createMany({
         data: assignedRows.map((c) => ({
@@ -145,14 +152,38 @@ export async function bulkAssign(args: {
         })),
       });
 
+      // Resolve the assigner's name for the email.
+      const assigner = await tx.appUser.findUnique({
+        where: { id: actorAppUserId },
+        select: { person: { select: { fullName: true } } },
+      });
+      const assignerName = assigner?.person.fullName ?? "A domain lead";
+
       for (const membershipId of assignedMembershipIds) {
         const m = valid.get(membershipId)!;
+        const row = assignedByMembership.get(membershipId)!;
         await enqueueEmail(tx, {
           eventType: "EVENT_ASSIGNED",
           templateKey: "EVENT_ASSIGNED",
           recipient: m.person.emailNormalized,
-          payload: { fullName: m.person.fullName, event: event.title },
-          idempotencyKey: `event-assigned:${eventId}:${membershipId}`,
+          payload: {
+            fullName: m.person.fullName,
+            event: event.title,
+            domain: event.domain.name,
+            assignedBy: assignerName,
+            startAt: event.startAt.toISOString(),
+            endAt: event.endAt.toISOString(),
+            ...(event.description ? { description: event.description } : {}),
+            ...(event.location ? { location: event.location } : {}),
+            eventId,
+            assignmentId: row.id,
+            domainId,
+            volunteerMembershipId: membershipId,
+          },
+          idempotencyKey: `event-assigned:${eventId}:${membershipId}:${row.assignedAt.getTime()}`,
+          // Automated: the notice goes out only once the event's start date &
+          // time has arrived (the outbox defers it until then).
+          nextAttemptAt: event.startAt,
         });
       }
     }
@@ -301,7 +332,8 @@ export async function removeAssignment(args: {
         status: true,
         eventId: true,
         volunteerMembershipId: true,
-        event: { select: { status: true } },
+        event: { select: { status: true, title: true } },
+        membership: { select: { person: { select: { fullName: true, emailNormalized: true } } } },
       },
     });
     if (!assignment) throw notFound("Assignment not found.");
@@ -333,6 +365,21 @@ export async function removeAssignment(args: {
       before: { status: assignment.status },
       after: { removed: true },
     });
+
+    // Notify the removed volunteer by email.
+    await enqueueEmail(tx, {
+      eventType: "ASSIGNMENT_REMOVED",
+      templateKey: "ASSIGNMENT_REMOVED",
+      recipient: assignment.membership.person.emailNormalized,
+      payload: {
+        fullName: assignment.membership.person.fullName,
+        event: assignment.event.title,
+        eventId: assignment.eventId,
+        assignmentId,
+        domainId,
+      },
+      idempotencyKey: `assignment-removed:${assignmentId}`,
+    });
   });
 }
 
@@ -359,6 +406,7 @@ export async function reassignAssignment(args: {
         status: true,
         volunteerMembershipId: true,
         event: { select: { status: true } },
+        membership: { select: { person: { select: { fullName: true, emailNormalized: true } } } },
       },
     });
     if (!source) throw notFound("Assignment not found.");
@@ -371,7 +419,11 @@ export async function reassignAssignment(args: {
 
     const target = await tx.event.findFirst({
       where: { id: targetEventId, domainId },
-      select: { id: true, title: true, status: true },
+      select: {
+        id: true, title: true, status: true,
+        description: true, startAt: true, endAt: true, location: true,
+        domain: { select: { name: true } },
+      },
     });
     if (!target) throw notFound("Target event not found.");
     if (target.status !== "SCHEDULED") {
@@ -385,12 +437,13 @@ export async function reassignAssignment(args: {
       where: { eventId: targetEventId, volunteerMembershipId: source.volunteerMembershipId },
     });
 
+    const assignedAt = new Date();
     let newAssignmentId: string;
     if (existingTarget) {
       // Reactivate the destination row instead of duplicating.
       await tx.eventAssignment.update({
         where: { id: existingTarget.id },
-        data: { status: "ASSIGNED", removedAt: null, completedAt: null },
+        data: { status: "ASSIGNED", removedAt: null, completedAt: null, assignedAt },
       });
       newAssignmentId = existingTarget.id;
     } else {
@@ -400,6 +453,7 @@ export async function reassignAssignment(args: {
           volunteerMembershipId: source.volunteerMembershipId,
           status: "ASSIGNED",
           assignedByAppUserId: actorAppUserId,
+          assignedAt,
         },
       });
       newAssignmentId = created.id;
@@ -427,6 +481,34 @@ export async function reassignAssignment(args: {
       requestId,
       before: { eventId: source.eventId },
       after: { eventId: targetEventId },
+    });
+
+    // Notify the volunteer about the NEW assignment (delivered automatically
+    // once the target event's start date & time arrives).
+    const assigner = await tx.appUser.findUnique({
+      where: { id: actorAppUserId },
+      select: { person: { select: { fullName: true } } },
+    });
+    await enqueueEmail(tx, {
+      eventType: "EVENT_ASSIGNED",
+      templateKey: "EVENT_ASSIGNED",
+      recipient: source.membership.person.emailNormalized,
+      payload: {
+        fullName: source.membership.person.fullName,
+        event: target.title,
+        domain: target.domain.name,
+        assignedBy: assigner?.person.fullName ?? "A domain lead",
+        startAt: target.startAt.toISOString(),
+        endAt: target.endAt.toISOString(),
+        ...(target.description ? { description: target.description } : {}),
+        ...(target.location ? { location: target.location } : {}),
+        eventId: targetEventId,
+        assignmentId: newAssignmentId,
+        domainId,
+        volunteerMembershipId: source.volunteerMembershipId,
+      },
+      idempotencyKey: `event-assigned:${targetEventId}:${source.volunteerMembershipId}:${assignedAt.getTime()}`,
+      nextAttemptAt: target.startAt,
     });
   });
 }

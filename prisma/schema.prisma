@@ -194,6 +194,7 @@ model Event {
   endedAt            DateTime?   @map("ended_at")
   reminder4dSentAt   DateTime?   @map("reminder_4d_sent_at")
   reminder24hSentAt  DateTime?   @map("reminder_24h_sent_at")
+  reminder1hSentAt   DateTime?   @map("reminder_1h_sent_at")
   createdByAppUserId String      @map("created_by_app_user_id") @db.Uuid
   createdAt          DateTime    @default(now()) @map("created_at")
   updatedAt          DateTime    @updatedAt @map("updated_at")

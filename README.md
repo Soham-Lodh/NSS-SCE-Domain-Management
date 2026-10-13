@@ -286,11 +286,27 @@ Redis or other cloud cache.
 
 ## 9b. Reminders, event lifecycle, Excel import/export, people
 
-### Deadline reminders
-Assigned volunteers receive reminder emails **4 days** and **24 hours** before an
-event's deadline (`endAt`). The worker is idempotent (per-event `reminder_*_sent_at`
-stamps + a unique outbox idempotency key), so each person is reminded at most
-once per stage. Trigger it from your scheduler:
+### Automated event emails (no manual sending, no login required for recipients)
+All emails are queued in a transactional outbox and delivered by the cron
+workers below — there is **no manual emailing step**. Templates follow the web
+app's UI flow (event name, domain, start, deadline, location, description,
+assigner) and contain **no login URLs**: the email itself is the notification.
+
+- **Assignment notice** (`EVENT_ASSIGNED`) — queued when a member is assigned or
+  re-assigned, and delivered **only once the event's start date & time has been
+  reached**. Includes who assigned it, the event details and all deadlines.
+- **Deadline reminders** — **4 days**, **24 hours** and **1 hour** before an
+  event's deadline (`endAt`), delivered only while the event is still
+  `SCHEDULED` and the member is still assigned.
+- **Suppression** — if a domain lead completed/ended/cancelled the event, or
+  removed the member (or completed the assignment) **before delivery**, the
+  email is never sent: the outbox marks it `DEAD` and writes an
+  `EMAIL_SUPPRESSED` audit row. Every delivery writes `EMAIL_SENT` /
+  `EMAIL_DELIVERY_FAILED` audit rows, visible to **tech team and coordinators**.
+
+Reminders are idempotent (per-event `reminder_*_sent_at` stamps + a unique
+outbox idempotency key), so each person is reminded at most once per stage.
+Trigger the reminder producer from your scheduler:
 
 ```http
 POST /api/cron/reminders
@@ -338,8 +354,8 @@ deactivates a user (retaining history) or revokes an invitation.
 ### Scheduled jobs summary
 | Endpoint | Purpose | Auth |
 |---|---|---|
-| `POST /api/cron/outbox` | deliver queued emails (retry/backoff) | `Bearer CRON_SECRET` |
-| `POST /api/cron/reminders` | 4-day / 24-hour deadline reminders | `Bearer CRON_SECRET` |
+| `POST /api/cron/outbox` | deliver queued emails (retry/backoff, deferral + suppression) | `Bearer CRON_SECRET` |
+| `POST /api/cron/reminders` | 4-day / 24-hour / 1-hour deadline reminders | `Bearer CRON_SECRET` |
 
 > `CRON_SECRET` is required for these. To create the **first coordinator** on an
 > empty database, set `BOOTSTRAP_COORDINATOR_EMAIL` to that person's email before
