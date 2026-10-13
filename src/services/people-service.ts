@@ -8,6 +8,7 @@ import { writeAudit } from "@/lib/audit/write-audit";
 import { canManageRole, wouldRemoveLastCoordinator } from "@/lib/authorization/roles";
 import type { AuthContext, AppRole } from "@/lib/auth/types";
 import { changeUserRole } from "@/services/user-admin-service";
+import { assertValidProjectId } from "@/services/project-service";
 
 export type PendingPerson = {
   id: string;
@@ -15,7 +16,9 @@ export type PendingPerson = {
   email: string;
   role: AppRole;
   domainId: string | null;
+  projectId: string | null;
   domainName: string | null;
+  projectName: string | null;
   createdAt: Date;
 };
 
@@ -34,9 +37,10 @@ export async function addPerson(args: {
   email: string;
   role: AppRole;
   domainId: string | null;
+  projectId?: string | null;
   requestId: string;
 }): Promise<AddPersonResult> {
-  const { actor, fullName, email, role, domainId, requestId } = args;
+  const { actor, fullName, email, role, domainId, projectId = null, requestId } = args;
   const normalized = normalizeEmail(email);
 
   if (!isEmailAllowed(normalized, allowedEmailDomains())) {
@@ -48,10 +52,14 @@ export async function addPerson(args: {
   if (role === "DOMAIN_LEAD" && !domainId) {
     throw validationError({ domainId: "A domain is required for a domain lead." });
   }
+  if ((role === "DOMAIN_LEAD" || role === "VOLUNTEER") && !projectId) {
+    throw validationError({ projectId: "A project is required for a domain member." });
+  }
   if (domainId) {
     const domain = await prisma.domain.findUnique({ where: { id: domainId }, select: { id: true } });
     if (!domain) throw validationError({ domainId: "Unknown domain." });
   }
+  await assertValidProjectId(projectId);
 
   // Does this person already have an account?
   const person = await prisma.person.findUnique({
@@ -64,7 +72,8 @@ export async function addPerson(args: {
       actor,
       targetAppUserId: person.appUser.id,
       role,
-      domainId: role === "DOMAIN_LEAD" ? domainId : null,
+      domainId: role === "DOMAIN_LEAD" || role === "VOLUNTEER" ? domainId : null,
+      projectId,
       requestId,
     });
     return { mode: "role-applied", id: person.appUser.id };
@@ -79,13 +88,18 @@ export async function addPerson(args: {
 
     // A volunteer belongs to a domain → create the membership now so they show
     // up in the domain's volunteer list even before they sign in.
-    if (role === "VOLUNTEER" && domainId) {
+    if ((role === "VOLUNTEER" || role === "DOMAIN_LEAD") && domainId) {
       const existingMembership = await tx.volunteerMembership.findFirst({
         where: { personId: p.id, domainId },
       });
-      if (!existingMembership) {
+      if (existingMembership) {
+        await tx.volunteerMembership.update({
+          where: { id: existingMembership.id },
+          data: { isActive: true, endedAt: null, projectId },
+        });
+      } else {
         await tx.volunteerMembership.create({
-          data: { personId: p.id, domainId },
+          data: { personId: p.id, domainId, projectId },
         });
       }
     }
@@ -95,7 +109,8 @@ export async function addPerson(args: {
       update: {
         fullName,
         role,
-        domainId: role === "DOMAIN_LEAD" ? domainId : null,
+        domainId: role === "DOMAIN_LEAD" || role === "VOLUNTEER" ? domainId : null,
+        projectId: role === "DOMAIN_LEAD" || role === "VOLUNTEER" ? projectId : null,
         isConsumed: false,
         consumedAt: null,
         createdByAppUserId: actor.appUserId,
@@ -104,7 +119,8 @@ export async function addPerson(args: {
         emailNormalized: normalized,
         fullName,
         role,
-        domainId: role === "DOMAIN_LEAD" ? domainId : null,
+        domainId: role === "DOMAIN_LEAD" || role === "VOLUNTEER" ? domainId : null,
+        projectId: role === "DOMAIN_LEAD" || role === "VOLUNTEER" ? projectId : null,
         createdByAppUserId: actor.appUserId,
       },
     });
@@ -114,9 +130,9 @@ export async function addPerson(args: {
       action: "PERSON_INVITED",
       targetType: "PendingRoleAssignment",
       targetId: pending.id,
-      domainId: role === "DOMAIN_LEAD" ? domainId : null,
+      domainId: role === "DOMAIN_LEAD" || role === "VOLUNTEER" ? domainId : null,
       requestId,
-      after: { email: normalized, role },
+      after: { email: normalized, role, projectId },
     });
 
     return { mode: "invited" as const, id: pending.id };
@@ -132,8 +148,10 @@ export async function listPendingPeople(): Promise<PendingPerson[]> {
       emailNormalized: true,
       role: true,
       domainId: true,
+      projectId: true,
       createdAt: true,
       domain: { select: { name: true } },
+      project: { select: { name: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 200,
@@ -144,7 +162,9 @@ export async function listPendingPeople(): Promise<PendingPerson[]> {
     email: r.emailNormalized,
     role: r.role,
     domainId: r.domainId,
+    projectId: r.projectId,
     domainName: r.domain?.name ?? null,
+    projectName: r.project?.name ?? null,
     createdAt: r.createdAt,
   }));
 }

@@ -31,12 +31,12 @@ export async function listActiveDomains(): Promise<DomainDTO[]> {
  */
 export async function listVisibleDomains(ctx: AuthContext): Promise<DomainDTO[]> {
   if (canViewAllDomains(ctx.roles)) return listActiveDomains();
-  if (ctx.domainId) {
-    const domain = await prisma.domain.findUnique({
-      where: { id: ctx.domainId },
+  if (ctx.domainIds.length > 0) {
+    return prisma.domain.findMany({
+      where: { id: { in: ctx.domainIds }, isActive: true },
       select: { id: true, name: true, description: true },
+      orderBy: { name: "asc" },
     });
-    return domain ? [domain] : [];
   }
   throw forbidden();
 }

@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { ApiClientError } from "@/lib/http/client";
+import { FeedbackProvider } from "@/components/providers/feedback-provider";
 
 /**
  * User-side cache configuration.
@@ -20,7 +21,9 @@ export function QueryProvider({ children }: { children: ReactNode }) {
           queries: {
             staleTime: 20_000,
             gcTime: 5 * 60_000,
-            refetchOnWindowFocus: false,
+            // Refetch only after a query has become stale, keeping returning
+            // users current without repeatedly reading fresh data.
+            refetchOnWindowFocus: true,
             refetchOnReconnect: true,
             retry: (failureCount, error) => {
               if (error instanceof ApiClientError) {
@@ -38,5 +41,9 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       }),
   );
 
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <FeedbackProvider>{children}</FeedbackProvider>
+    </QueryClientProvider>
+  );
 }

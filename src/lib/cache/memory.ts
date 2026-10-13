@@ -13,6 +13,7 @@ import "server-only";
 type Entry<T> = { value: T; expiresAt: number };
 
 const store = new Map<string, Entry<unknown>>();
+const pending = new Map<string, Promise<unknown>>();
 
 export async function memoized<T>(
   key: string,
@@ -22,9 +23,17 @@ export async function memoized<T>(
   const now = Date.now();
   const hit = store.get(key) as Entry<T> | undefined;
   if (hit && hit.expiresAt > now) return hit.value;
-  const value = await loader();
-  store.set(key, { value, expiresAt: now + ttlMs });
-  return value;
+  const inFlight = pending.get(key) as Promise<T> | undefined;
+  if (inFlight) return inFlight;
+
+  const loading = loader()
+    .then((value) => {
+      store.set(key, { value, expiresAt: Date.now() + ttlMs });
+      return value;
+    })
+    .finally(() => pending.delete(key));
+  pending.set(key, loading);
+  return loading;
 }
 
 export function invalidateMemo(prefix: string): void {
@@ -35,4 +44,5 @@ export function invalidateMemo(prefix: string): void {
 
 export function clearMemo(): void {
   store.clear();
+  pending.clear();
 }

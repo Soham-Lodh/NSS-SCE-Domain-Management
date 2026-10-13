@@ -1,23 +1,28 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NssLogo } from "@/components/brand/nss-logo";
 import { BentoCard, Button } from "@/components/ui/primitives";
 
 export default function UnauthorizedPage() {
-  const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const started = useRef(false);
 
   async function signOut() {
+    if (started.current) return;
+    started.current = true;
     setSigningOut(true);
     try {
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
-      router.replace("/login");
-      router.refresh();
+      window.location.replace("/");
     }
   }
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => void signOut(), 2500);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   return (
     <main className="grid min-h-screen place-items-center p-4">
@@ -30,18 +35,18 @@ export default function UnauthorizedPage() {
             Access not approved
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-[color:var(--navy-70)]">
-            Your Google sign-in is valid, but this account has not been assigned as a
-            volunteer, domain lead, tech team member, or coordinator in the NSS SCE KIIT
-            platform.
+            Your Google sign-in is valid, but this account is not approved for the NSS SCE
+            KIIT management portal. Volunteers receive event updates by email and do not
+            need portal access.
           </p>
         </div>
         <div className="surface-inset px-4 py-3 text-xs leading-relaxed text-[color:var(--navy-70)]">
-          Ask a coordinator or tech team member to add your account. If you used the
-          wrong Google account, sign out and choose the approved account.
+          This session will be cleared shortly. Ask a coordinator or tech team member to
+          approve a management role, or choose a different account.
         </div>
         <div className="flex justify-center">
           <Button variant="secondary" onClick={signOut} loading={signingOut}>
-            Sign out
+            Continue with another account
           </Button>
         </div>
       </BentoCard>

@@ -6,6 +6,7 @@
  * flow. Never run this against production.
  */
 import { PrismaClient } from "@prisma/client";
+import { ALLOWED_PROJECT_NAMES } from "../src/lib/projects";
 
 const prisma = new PrismaClient();
 
@@ -27,11 +28,16 @@ async function main() {
     }),
   ]);
 
-  const healthProject = await prisma.project.upsert({
-    where: { domainId_name: { domainId: health.id, name: "Blood Donation Drive" } },
-    update: {},
-    create: { domainId: health.id, name: "Blood Donation Drive" },
-  });
+  const projects = await Promise.all(
+    ALLOWED_PROJECT_NAMES.map((name) =>
+      prisma.project.upsert({
+        where: { name },
+        update: { isActive: true },
+        create: { name, isActive: true },
+      }),
+    ),
+  );
+  const defaultProject = projects.find((p) => p.name === "Nidaan") ?? projects[0];
 
   const people = [
     { fullName: "Asha Verma", emailNormalized: "asha.verma@example.test", rollNumberNormalized: "TEST001" },
@@ -49,8 +55,8 @@ async function main() {
   }
 
   const membershipRows = [
-    { email: "asha.verma@example.test", domainId: health.id, projectId: healthProject.id },
-    { email: "rahul.nair@example.test", domainId: health.id, projectId: healthProject.id },
+    { email: "asha.verma@example.test", domainId: health.id, projectId: defaultProject.id },
+    { email: "rahul.nair@example.test", domainId: health.id, projectId: defaultProject.id },
     { email: "meera.das@example.test", domainId: education.id, projectId: null },
     { email: "vikram.rao@example.test", domainId: education.id, projectId: null },
   ];
@@ -67,7 +73,7 @@ async function main() {
     }
   }
 
-  console.log("Seed complete: 2 domains, 1 project, 4 fictional members (no privileged accounts).");
+  console.log("Seed complete: 2 domains, 9 projects, 4 fictional members (no privileged accounts).");
 }
 
 main()

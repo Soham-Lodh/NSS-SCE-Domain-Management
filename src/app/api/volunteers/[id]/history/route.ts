@@ -15,9 +15,12 @@ export const GET = protectedRoute<Ctx>(async (req, requestId, ctx) => {
   const { id } = await ctx.params;
   const membershipId = requireUuidParam(id);
   const { domainId: requestedDomainId } = parseQuery(req, query);
+  const actualDomainId = await getVolunteerMembershipDomainId(membershipId);
   const domainId =
-    canViewAllDomains(auth.roles) && !requestedDomainId
-      ? await getVolunteerMembershipDomainId(membershipId)
+    !requestedDomainId || requestedDomainId === actualDomainId
+      ? canViewAllDomains(auth.roles)
+        ? actualDomainId
+        : resolveDomainScope(auth, actualDomainId)
       : resolveDomainScope(auth, requestedDomainId);
   const detail = await getVolunteerDetail(domainId, membershipId);
   // Return only the history-relevant slice.

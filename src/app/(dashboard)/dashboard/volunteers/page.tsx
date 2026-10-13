@@ -24,6 +24,7 @@ import {
   useImportCommit,
   useImportVolunteers,
   useMe,
+  useProjects,
   useVolunteers,
 } from "@/hooks/api-hooks";
 import { ApiClientError } from "@/lib/http/client";
@@ -41,6 +42,8 @@ function useDebounced<T>(value: T, delay = 350): T {
 export default function VolunteersPage() {
   const me = useMe();
   const domains = useDomains();
+  const projects = useProjects();
+  const leadDomainIds = me.data?.domainIds ?? [];
   const isOversight = !!me.data && (me.data.roles.includes("TECH_TEAM") || me.data.roles.includes("COORDINATOR"));
   const canManage = isOversight;
 
@@ -49,14 +52,17 @@ export default function VolunteersPage() {
   const [page, setPage] = useState(1);
   const [activeOnly, setActiveOnly] = useState(true);
   const [selectedDomain, setSelectedDomain] = useState("");
+  const [selectedProject, setSelectedProject] = useState("");
 
-  const effectiveDomainId = (me.data?.domainId ?? selectedDomain) || undefined;
+  const mustChooseDomain = isOversight || leadDomainIds.length > 1;
+  const effectiveDomainId = mustChooseDomain ? selectedDomain || undefined : leadDomainIds[0];
   const canLoad = !!effectiveDomainId;
-  const waitingForDomainSelection = isOversight && !effectiveDomainId;
+  const waitingForDomainSelection = mustChooseDomain && !effectiveDomainId;
 
   const query = useVolunteers({
     domainId: effectiveDomainId,
     search: debouncedSearch || undefined,
+    projectId: selectedProject || undefined,
     activeOnly,
     page,
     limit: 25,
@@ -64,7 +70,7 @@ export default function VolunteersPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, activeOnly, effectiveDomainId]);
+  }, [debouncedSearch, activeOnly, effectiveDomainId, selectedProject]);
 
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -130,7 +136,7 @@ export default function VolunteersPage() {
       )}
 
       <DataPanel title="Filters" isLoading={me.isLoading} isError={false} error={null} isEmpty={false}>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-4">
           <Field label="Search">
             <Input
               placeholder="Name, roll number or email"
@@ -138,7 +144,7 @@ export default function VolunteersPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </Field>
-          {isOversight && !me.data?.domainId && (
+          {mustChooseDomain && (
             <Field label="Domain">
               <Select value={selectedDomain} onChange={(e) => setSelectedDomain(e.target.value)}>
                 <option value="">Select a domain…</option>
@@ -154,6 +160,16 @@ export default function VolunteersPage() {
             <Select value={activeOnly ? "true" : "false"} onChange={(e) => setActiveOnly(e.target.value === "true")}>
               <option value="true">Active only</option>
               <option value="false">All (incl. inactive)</option>
+            </Select>
+          </Field>
+          <Field label="Project">
+            <Select value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)}>
+              <option value="">All projects</option>
+              {projects.data?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
             </Select>
           </Field>
         </div>
@@ -235,7 +251,8 @@ export default function VolunteersPage() {
           open={creating}
           onClose={() => setCreating(false)}
           domains={domains.data ?? []}
-          defaultDomainId={me.data?.domainId ?? undefined}
+          projects={projects.data ?? []}
+          defaultDomainId={effectiveDomainId}
         />
       )}
 
@@ -250,11 +267,13 @@ function CreateVolunteerModal({
   open,
   onClose,
   domains,
+  projects,
   defaultDomainId,
 }: {
   open: boolean;
   onClose: () => void;
   domains: { id: string; name: string }[];
+  projects: { id: string; name: string }[];
   defaultDomainId?: string;
 }) {
   const create = useCreateVolunteer();
@@ -263,6 +282,7 @@ function CreateVolunteerModal({
     email: "",
     rollNumber: "",
     domainId: defaultDomainId ?? domains[0]?.id ?? "",
+    projectId: "",
   });
   const [message, setMessage] = useState<string | null>(null);
 
@@ -283,6 +303,7 @@ function CreateVolunteerModal({
         email: form.email,
         rollNumber: form.rollNumber || undefined,
         domainId: form.domainId,
+        projectId: form.projectId,
       },
       {
         onSuccess: () => {
@@ -305,7 +326,11 @@ function CreateVolunteerModal({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={submit} loading={create.isPending} disabled={!form.fullName || !form.email || !form.domainId}>
+          <Button
+            onClick={submit}
+            loading={create.isPending}
+            disabled={!form.fullName || !form.email || !form.domainId || !form.projectId}
+          >
             Add
           </Button>
         </>
@@ -326,6 +351,16 @@ function CreateVolunteerModal({
             {domains.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Project">
+          <Select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
+            <option value="">Select a project…</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
               </option>
             ))}
           </Select>
@@ -413,7 +448,7 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     >
       <div className="space-y-3">
         <div className="surface-inset p-3 text-[11px] text-[color:var(--navy-70)]">
-          Expected columns: <strong>Email Address, Name, Roll No, Year, Gender, Domain</strong>.
+          Expected columns: <strong>Email Address, Name, Roll No, Year, Gender, Domain, Project</strong>.
           Rows with an email outside the allowed domains, an unknown domain or duplicates are
           rejected. Nothing is saved until you confirm the preview below.
         </div>

@@ -14,13 +14,13 @@ export const createVolunteerSchema = z.object({
   email: z.string().trim().email().max(320),
   rollNumber: z.string().trim().min(1).max(40).optional(),
   domainId: uuid,
-  projectId: uuid.optional().nullable(),
+  projectId: uuid,
 });
 
 export const updateVolunteerSchema = z.object({
   fullName: z.string().trim().min(2).max(150).optional(),
   rollNumber: z.string().trim().min(1).max(40).optional().nullable(),
-  projectId: uuid.optional().nullable(),
+  projectId: uuid.optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -67,11 +67,16 @@ export const roleChangeSchema = z
   .object({
     role: z.enum(["VOLUNTEER", "DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"]),
     domainId: uuid.optional().nullable(),
+    projectId: uuid.optional().nullable(),
   })
-  .refine(
-    (v) => v.role !== "DOMAIN_LEAD" || !!v.domainId,
-    { message: "A domain is required for a domain lead.", path: ["domainId"] },
-  );
+  .refine((v) => (v.role !== "DOMAIN_LEAD" && v.role !== "VOLUNTEER") || !!v.domainId, {
+    message: "A domain is required for a domain member.",
+    path: ["domainId"],
+  })
+  .refine((v) => (v.role !== "DOMAIN_LEAD" && v.role !== "VOLUNTEER") || !!v.projectId, {
+    message: "A project is required for a domain member.",
+    path: ["projectId"],
+  });
 
 export const eventListQuery = z.object({
   domainId: uuid.optional(),
@@ -114,10 +119,15 @@ export const personUpsertSchema = z
     email: z.string().trim().email().max(320),
     role: z.enum(["VOLUNTEER", "DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"]),
     domainId: uuid.optional().nullable(),
+    projectId: uuid.optional().nullable(),
   })
-  .refine((v) => v.role !== "DOMAIN_LEAD" || !!v.domainId, {
-    message: "A domain is required for a domain lead.",
+  .refine((v) => (v.role !== "DOMAIN_LEAD" && v.role !== "VOLUNTEER") || !!v.domainId, {
+    message: "A domain is required for a domain member.",
     path: ["domainId"],
+  })
+  .refine((v) => (v.role !== "DOMAIN_LEAD" && v.role !== "VOLUNTEER") || !!v.projectId, {
+    message: "A project is required for a domain member.",
+    path: ["projectId"],
   });
 
 // A row echoed back from the import preview and re-validated on commit.

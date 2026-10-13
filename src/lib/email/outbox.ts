@@ -58,31 +58,30 @@ export async function enqueueEmail(
     idempotencyKey?: string;
   },
 ): Promise<void> {
-  try {
-    await tx.emailOutbox.create({
-      data: {
-        eventType: args.eventType,
-        templateKey: args.templateKey,
-        recipient: args.recipient,
-        payloadJson: args.payload as Prisma.InputJsonValue,
-        status: "PENDING",
-        nextAttemptAt: new Date(),
-        idempotencyKey: args.idempotencyKey ?? null,
-      },
-    });
-  } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002" &&
-      args.idempotencyKey
-    ) {
-      return;
-    }
-    throw err;
-  }
+  await tx.emailOutbox.createMany({
+    data: [{
+      eventType: args.eventType,
+      templateKey: args.templateKey,
+      recipient: args.recipient,
+      payloadJson: args.payload as Prisma.InputJsonValue,
+      status: "PENDING",
+      nextAttemptAt: new Date(),
+      idempotencyKey: args.idempotencyKey ?? null,
+    }],
+    skipDuplicates: Boolean(args.idempotencyKey),
+  });
 }
 
 const MAX_ATTEMPTS = 5;
+const CLAIM_LEASE_MS = 15 * 60_000;
+
+type ClaimedOutboxRow = {
+  id: string;
+  recipient: string;
+  templateKey: string;
+  payloadJson: Prisma.JsonValue;
+  attemptCount: number;
+};
 
 /** Backoff: 1m, 4m, 9m, 16m… capped. */
 function backoffMs(attempt: number): number {
@@ -94,11 +93,29 @@ function backoffMs(attempt: number): number {
  * cron route. Failures are recorded and retried with backoff — never thrown.
  */
 export async function processOutbox(limit = 25): Promise<{ sent: number; failed: number }> {
-  const rows = await prisma.emailOutbox.findMany({
-    where: { status: "PENDING", nextAttemptAt: { lte: new Date() } },
-    orderBy: { nextAttemptAt: "asc" },
-    take: limit,
-  });
+  const leaseUntil = new Date(Date.now() + CLAIM_LEASE_MS);
+  // Claim rows in one PostgreSQL statement. SKIP LOCKED allows concurrent cron
+  // workers to make progress without delivering the same email twice.
+  const rows = await prisma.$queryRaw<ClaimedOutboxRow[]>(Prisma.sql`
+    WITH candidates AS (
+      SELECT id
+      FROM email_outbox
+      WHERE status = 'PENDING'::"OutboxStatus" AND next_attempt_at <= NOW()
+      ORDER BY next_attempt_at ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${limit}
+    )
+    UPDATE email_outbox AS outbox
+    SET next_attempt_at = ${leaseUntil}, updated_at = NOW()
+    FROM candidates
+    WHERE outbox.id = candidates.id
+    RETURNING
+      outbox.id,
+      outbox.recipient,
+      outbox.template_key AS "templateKey",
+      outbox.payload_json AS "payloadJson",
+      outbox.attempt_count AS "attemptCount"
+  `);
 
   let sent = 0;
   let failed = 0;

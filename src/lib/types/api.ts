@@ -17,10 +17,12 @@ export type MeDTO = {
   role: AppRole;
   roles: AppRole[];
   domainId: string | null;
+  domainIds: string[];
   isActive: boolean;
 };
 
 export type DomainDTO = { id: string; name: string; description: string | null };
+export type ProjectDTO = { id: string; name: string };
 
 export type VolunteerRowDTO = {
   membershipId: string;
@@ -151,7 +153,9 @@ export type PendingPersonDTO = {
   email: string;
   role: AppRole;
   domainId: string | null;
+  projectId: string | null;
   domainName: string | null;
+  projectName: string | null;
   createdAt: string;
 };
 

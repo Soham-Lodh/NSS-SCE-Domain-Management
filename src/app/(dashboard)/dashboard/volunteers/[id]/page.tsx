@@ -2,10 +2,12 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { useState } from "react";
 import { PageHeader } from "@/components/layout/app-shell";
 import { DataPanel } from "@/components/dashboard/data-panel";
-import { Badge, StatusPill, TableShell, Td, Th } from "@/components/ui/primitives";
-import { useVolunteerDetail } from "@/hooks/api-hooks";
+import { Badge, Button, Field, Input, Modal, Select, StatusPill, TableShell, Td, Th } from "@/components/ui/primitives";
+import { useMe, useProjects, useUpdateVolunteer, useVolunteerDetail } from "@/hooks/api-hooks";
+import { ApiClientError } from "@/lib/http/client";
 import type { AssignmentDTO } from "@/lib/types/api";
 
 function categorize(a: AssignmentDTO): "COMPLETED" | "UPCOMING" | "ONGOING" | "PAST" | "CANCELLED" {
@@ -23,8 +25,11 @@ function categorize(a: AssignmentDTO): "COMPLETED" | "UPCOMING" | "ONGOING" | "P
 export default function VolunteerDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const me = useMe();
   const query = useVolunteerDetail(id);
   const detail = query.data;
+  const [editing, setEditing] = useState(false);
+  const canEdit = !!me.data && (me.data.roles.includes("TECH_TEAM") || me.data.roles.includes("COORDINATOR"));
 
   const groups = {
     COMPLETED: [] as AssignmentDTO[],
@@ -41,9 +46,16 @@ export default function VolunteerDetailPage() {
         title={detail?.person.fullName ?? "Member"}
         subtitle={detail ? `${detail.domain.name} · ${detail.person.emailNormalized}` : undefined}
         action={
-          <Link href="/dashboard/volunteers" className="btn btn-secondary">
-            ← Back
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {canEdit && detail && (
+              <Button variant="secondary" onClick={() => setEditing(true)}>
+                Edit details
+              </Button>
+            )}
+            <Link href="/dashboard/volunteers" className="btn btn-secondary">
+              ← Back
+            </Link>
+          </div>
         }
       />
 
@@ -130,7 +142,88 @@ export default function VolunteerDetailPage() {
           </TableShell>
         </DataPanel>
       </div>
+      {editing && detail && <EditVolunteerModal id={id} detail={detail} onClose={() => setEditing(false)} />}
     </div>
+  );
+}
+
+function EditVolunteerModal({
+  id,
+  detail,
+  onClose,
+}: {
+  id: string;
+  detail: NonNullable<ReturnType<typeof useVolunteerDetail>["data"]>;
+  onClose: () => void;
+}) {
+  const projects = useProjects();
+  const update = useUpdateVolunteer(id);
+  const [form, setForm] = useState({
+    fullName: detail.person.fullName,
+    rollNumber: detail.person.rollNumberNormalized ?? "",
+    projectId: detail.project?.id ?? "",
+    isActive: detail.isActive,
+  });
+  const [message, setMessage] = useState<string | null>(null);
+
+  function submit() {
+    setMessage(null);
+    update.mutate(
+      {
+        fullName: form.fullName,
+        rollNumber: form.rollNumber || null,
+        projectId: form.projectId,
+        isActive: form.isActive,
+      },
+      {
+        onSuccess: () => setTimeout(onClose, 600),
+        onError: (err) => setMessage(err instanceof ApiClientError ? err.message : "Could not update member."),
+      },
+    );
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Edit member"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={submit} loading={update.isPending} disabled={!form.fullName || !form.projectId}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Field label="Full name">
+          <Input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+        </Field>
+        <Field label="Roll number">
+          <Input value={form.rollNumber} onChange={(e) => setForm({ ...form, rollNumber: e.target.value })} />
+        </Field>
+        <Field label="Project">
+          <Select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
+            <option value="">Select a project…</option>
+            {projects.data?.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Status">
+          <Select value={form.isActive ? "true" : "false"} onChange={(e) => setForm({ ...form, isActive: e.target.value === "true" })}>
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </Select>
+        </Field>
+        {message && <p className="text-xs font-medium text-[color:var(--brand-red)]">{message}</p>}
+      </div>
+    </Modal>
   );
 }
 

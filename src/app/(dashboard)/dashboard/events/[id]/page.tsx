@@ -36,7 +36,7 @@ export default function EventDetailPage() {
   const me = useMe();
   const query = useEventDetail(eventId);
   const event = query.data;
-  const canOperate = !!me.data?.domainId && me.data.roles.includes("DOMAIN_LEAD") && event?.domainId === me.data.domainId;
+  const canOperate = !!event && (me.data?.roles.includes("DOMAIN_LEAD") ?? false) && (me.data?.domainIds ?? []).includes(event.domainId);
 
   const [assigning, setAssigning] = useState(false);
   const lifecycle = useEventLifecycle(eventId);
@@ -93,11 +93,11 @@ export default function EventDetailPage() {
           error={query.error}
           isEmpty={(event?.assignments.length ?? 0) === 0}
           emptyTitle="No volunteers assigned"
-          emptyDescription={canOperate ? "Use “Assign volunteers” to add members." : undefined}
+          emptyDescription={canOperate && !isEnded ? "Use “Assign volunteers” to add members." : undefined}
           onRetry={() => query.refetch()}
           rowSkeletonCount={5}
           action={
-            canOperate && (
+            canOperate && !isEnded && (
               <Button onClick={() => setAssigning(true)}>+ Assign volunteers</Button>
             )
           }
@@ -113,14 +113,14 @@ export default function EventDetailPage() {
             </thead>
             <tbody>
               {event?.assignments.map((a) => (
-                <AssignmentRow key={a.id} assignment={a} canOperate={canOperate} eventId={eventId} />
+                <AssignmentRow key={a.id} assignment={a} canOperate={canOperate && !isEnded} eventId={eventId} domainId={event?.domainId ?? ""} />
               ))}
             </tbody>
           </TableShell>
         </DataPanel>
       </div>
 
-      {canOperate && event && (
+      {canOperate && event && !isEnded && (
         <BulkAssignModal open={assigning} onClose={() => setAssigning(false)} eventId={eventId} domainId={event.domainId} />
       )}
     </div>
@@ -170,10 +170,12 @@ function AssignmentRow({
   assignment,
   canOperate,
   eventId,
+  domainId,
 }: {
   assignment: AssignmentDTO;
   canOperate: boolean;
   eventId: string;
+  domainId: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -232,6 +234,7 @@ function AssignmentRow({
         <ReassignModal
           assignmentId={assignment.id}
           currentEventId={eventId}
+          domainId={domainId}
           onClose={() => setReassignOpen(false)}
         />
       )}
@@ -239,9 +242,7 @@ function AssignmentRow({
   );
 }
 
-function ReassignModal({ assignmentId, currentEventId, onClose }: { assignmentId: string; currentEventId: string; onClose: () => void }) {
-  const me = useMe();
-  const domainId = me.data?.domainId ?? undefined;
+function ReassignModal({ assignmentId, currentEventId, domainId, onClose }: { assignmentId: string; currentEventId: string; domainId: string; onClose: () => void }) {
   const eventsQuery = useEvents({ domainId, category: "ALL", limit: 50 });
   const events = (eventsQuery.data?.items ?? []).filter(
     (e) => e.id !== currentEventId && e.category !== "CANCELLED" && e.category !== "PAST",

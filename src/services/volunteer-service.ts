@@ -6,6 +6,7 @@ import { notFound, validationError } from "@/lib/api/response";
 import { normalizeEmail } from "@/lib/authorization/email";
 import { writeAudit } from "@/lib/audit/write-audit";
 import { enqueueEmail } from "@/lib/email/outbox";
+import { assertValidProjectId } from "@/services/project-service";
 import type { CreateVolunteerInput } from "@/lib/validation/schemas";
 import type { Paginated } from "@/lib/utils/pagination";
 
@@ -161,6 +162,7 @@ export async function createVolunteer(
 
   const domain = await prisma.domain.findUnique({ where: { id: input.domainId } });
   if (!domain) throw validationError({ domainId: "Unknown domain." }, "Unknown domain.");
+  await assertValidProjectId(input.projectId);
 
   // Pre-validate uniqueness for a friendly error (constraint still enforced).
   const emailOwner = await prisma.person.findUnique({ where: { emailNormalized: email } });
@@ -192,7 +194,7 @@ export async function createVolunteer(
     if (existing) {
       await tx.volunteerMembership.update({
         where: { id: existing.id },
-        data: { isActive: true, endedAt: null, projectId: input.projectId ?? existing.projectId },
+        data: { isActive: true, endedAt: null, projectId: input.projectId },
       });
       membershipId = existing.id;
     } else {
@@ -200,7 +202,7 @@ export async function createVolunteer(
         data: {
           personId: person.id,
           domainId: input.domainId,
-          projectId: input.projectId ?? null,
+          projectId: input.projectId,
           isActive: true,
         },
       });
@@ -242,6 +244,7 @@ export async function updateVolunteer(args: {
   };
 }): Promise<void> {
   const { domainId, membershipId, actorAppUserId, requestId, data } = args;
+  await assertValidProjectId(data.projectId);
 
   await prisma.$transaction(async (tx) => {
     // Scope the lookup by domain — never fetch then check.

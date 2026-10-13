@@ -12,8 +12,10 @@ type Ctx = { params: Promise<{ id: string }> };
 const query = z.object({ domainId: z.string().uuid().optional() });
 
 async function resolveVolunteerDomain(auth: Awaited<ReturnType<typeof requireAuthContext>>, membershipId: string, requestedDomainId?: string) {
-  if (canViewAllDomains(auth.roles) && !requestedDomainId) {
-    return getVolunteerMembershipDomainId(membershipId);
+  const actualDomainId = await getVolunteerMembershipDomainId(membershipId);
+  if (!requestedDomainId || requestedDomainId === actualDomainId) {
+    if (canViewAllDomains(auth.roles)) return actualDomainId;
+    return resolveDomainScope(auth, actualDomainId);
   }
   return resolveDomainScope(auth, requestedDomainId);
 }

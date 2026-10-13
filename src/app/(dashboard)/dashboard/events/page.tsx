@@ -32,14 +32,18 @@ function toneFor(cat: EventCardDTO["category"]) {
 export default function EventsPage() {
   const me = useMe();
   const domains = useDomains();
-  const canOperate = !!me.data?.domainId && me.data?.roles.includes("DOMAIN_LEAD");
+  const leadDomainIds = me.data?.domainIds ?? [];
+  const isDomainLead = me.data?.roles.includes("DOMAIN_LEAD") ?? false;
   const isOversight = !!me.data && (me.data.roles.includes("TECH_TEAM") || me.data.roles.includes("COORDINATOR"));
 
   const [tab, setTab] = useState<Tab>("ALL");
   const [selectedDomain, setSelectedDomain] = useState("");
   const [creating, setCreating] = useState(false);
 
-  const effectiveDomainId = (me.data?.domainId ?? selectedDomain) || undefined;
+  const mustChooseDomain = isOversight || leadDomainIds.length > 1;
+  const effectiveDomainId = mustChooseDomain ? selectedDomain || undefined : leadDomainIds[0];
+  const canOperate = !!effectiveDomainId && isDomainLead && leadDomainIds.includes(effectiveDomainId);
+  const waitingForDomainSelection = mustChooseDomain && !effectiveDomainId;
   const query = useEvents({ domainId: effectiveDomainId, category: tab, limit: 24 });
 
   useEffect(() => {
@@ -69,7 +73,7 @@ export default function EventsPage() {
             { value: "CANCELLED", label: "Cancelled" },
           ]}
         />
-        {isOversight && !me.data?.domainId && (
+        {mustChooseDomain && (
           <Field label="Domain">
             <Select value={selectedDomain} onChange={(e) => setSelectedDomain(e.target.value)}>
               <option value="">Select a domain…</option>
@@ -86,12 +90,16 @@ export default function EventsPage() {
       <DataPanel
         title="Event cards"
         subtitle={query.data ? `${query.data.total} event(s)` : undefined}
-        isLoading={me.isLoading || query.isLoading || (isOversight && !effectiveDomainId)}
-        isError={query.isError}
+        isLoading={me.isLoading || (!!effectiveDomainId && query.isLoading)}
+        isError={!waitingForDomainSelection && query.isError}
         error={query.error}
-        isEmpty={(query.data?.items.length ?? 0) === 0}
-        emptyTitle={isOversight && !effectiveDomainId ? "Select a domain" : "No events here"}
-        emptyDescription="Events you can access will appear here, sorted by date."
+        isEmpty={waitingForDomainSelection || (query.data?.items.length ?? 0) === 0}
+        emptyTitle={waitingForDomainSelection ? "Select a domain" : "No events here"}
+        emptyDescription={
+          waitingForDomainSelection
+            ? "Choose a domain above to view its events."
+            : "Events you can access will appear here, sorted by date."
+        }
         onRetry={() => query.refetch()}
         skeleton={
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -133,8 +141,8 @@ export default function EventsPage() {
         </div>
       </DataPanel>
 
-      {canOperate && (
-        <CreateEventModal open={creating} onClose={() => setCreating(false)} domainId={me.data!.domainId!} />
+      {canOperate && effectiveDomainId && (
+        <CreateEventModal open={creating} onClose={() => setCreating(false)} domainId={effectiveDomainId} />
       )}
     </div>
   );

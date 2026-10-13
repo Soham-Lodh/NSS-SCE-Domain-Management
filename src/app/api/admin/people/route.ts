@@ -24,6 +24,7 @@ export const POST = protectedRoute(async (req, requestId) => {
     email: input.email,
     role: input.role,
     domainId: input.domainId ?? null,
+    projectId: input.projectId ?? null,
     requestId,
   });
   return apiOk(result, requestId);

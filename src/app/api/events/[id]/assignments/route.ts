@@ -3,11 +3,11 @@ import { parseBody, protectedRoute, requireUuidParam } from "@/lib/api/route";
 import {
   requireAuthContext,
   assertCanOperateEvents,
-  resolveDomainScope,
   assertSameOrigin,
 } from "@/lib/authorization/require";
 import { bulkAssignSchema } from "@/lib/validation/schemas";
 import { bulkAssign } from "@/services/assignment-service";
+import { getEventDomainId } from "@/services/event-service";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export const POST = protectedRoute<Ctx>(async (req, requestId, ctx) => {
   const auth = await requireAuthContext({ requestId, provision: true });
   const { id } = await ctx.params;
   const eventId = requireUuidParam(id);
-  const domainId = resolveDomainScope(auth);
+  const domainId = await getEventDomainId(eventId);
   assertCanOperateEvents(auth, domainId);
   const { membershipIds } = await parseBody(req, bulkAssignSchema);
 

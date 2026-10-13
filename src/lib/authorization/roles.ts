@@ -26,6 +26,16 @@ export function domainLeadDomainId(grants: RoleGrantView[]): string | null {
   return grant?.domainId ?? null;
 }
 
+export function domainLeadDomainIds(grants: RoleGrantView[]): string[] {
+  return Array.from(
+    new Set(
+      grants
+        .filter((g) => g.isActive && g.role === "DOMAIN_LEAD" && !!g.domainId)
+        .map((g) => g.domainId as string),
+    ),
+  );
+}
+
 /** Cross-domain read/oversight (not event operation). */
 export function canViewAllDomains(roles: AppRole[]): boolean {
   return roles.includes("TECH_TEAM") || roles.includes("COORDINATOR");

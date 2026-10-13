@@ -178,6 +178,13 @@ export async function getEventDetail(domainId: string, eventId: string) {
   return event;
 }
 
+/** Resolve an event's owning domain before an oversight read. */
+export async function getEventDomainId(eventId: string): Promise<string> {
+  const event = await prisma.event.findUnique({ where: { id: eventId }, select: { domainId: true } });
+  if (!event) throw notFound("Event not found.");
+  return event.domainId;
+}
+
 export async function createEvent(args: {
   input: CreateEventInput;
   actorAppUserId: string;
@@ -307,11 +314,39 @@ export async function completeEvent(args: {
     const event = await tx.event.findFirst({ where: { id: eventId, domainId } });
     if (!event) throw notFound("Event not found.");
     if (event.status === "COMPLETED") return; // idempotent
+    if (event.status !== "SCHEDULED") {
+      throw validationError({ eventId: "Only a scheduled event can be completed." });
+    }
+
+    const now = new Date();
+    const openAssignments = await tx.eventAssignment.findMany({
+      where: { eventId, removedAt: null, status: "ASSIGNED" },
+      select: { id: true },
+    });
 
     await tx.event.update({
       where: { id: eventId },
-      data: { status: "COMPLETED", endedAt: new Date() },
+      data: { status: "COMPLETED", endedAt: now },
     });
+
+    if (openAssignments.length > 0) {
+      await tx.eventAssignment.updateMany({
+        where: { id: { in: openAssignments.map((a) => a.id) } },
+        data: { status: "COMPLETED", completedAt: now },
+      });
+      await tx.assignmentHistory.createMany({
+        data: openAssignments.map((a) => ({
+          assignmentId: a.id,
+          actorAppUserId,
+          action: "COMPLETED" as const,
+          fromEventId: eventId,
+          toEventId: eventId,
+          fromStatus: "ASSIGNED" as const,
+          toStatus: "COMPLETED" as const,
+          requestId,
+        })),
+      });
+    }
 
     await writeAudit(tx, {
       actorAppUserId,
@@ -321,7 +356,7 @@ export async function completeEvent(args: {
       domainId,
       requestId,
       before: { status: event.status },
-      after: { status: "COMPLETED" },
+      after: { status: "COMPLETED", completedAssignments: openAssignments.length },
     });
 
     // Notify assigned volunteers (post-commit delivery via the outbox).
@@ -357,10 +392,34 @@ export async function reopenEvent(args: {
     if (!event) throw notFound("Event not found.");
     if (event.status !== "COMPLETED") return;
 
+    const completedAssignments = await tx.eventAssignment.findMany({
+      where: { eventId, removedAt: null, status: "COMPLETED" },
+      select: { id: true },
+    });
+
     await tx.event.update({
       where: { id: eventId },
       data: { status: "SCHEDULED", endedAt: null },
     });
+
+    if (completedAssignments.length > 0) {
+      await tx.eventAssignment.updateMany({
+        where: { id: { in: completedAssignments.map((a) => a.id) } },
+        data: { status: "ASSIGNED", completedAt: null },
+      });
+      await tx.assignmentHistory.createMany({
+        data: completedAssignments.map((a) => ({
+          assignmentId: a.id,
+          actorAppUserId,
+          action: "REOPENED" as const,
+          fromEventId: eventId,
+          toEventId: eventId,
+          fromStatus: "COMPLETED" as const,
+          toStatus: "ASSIGNED" as const,
+          requestId,
+        })),
+      });
+    }
 
     await writeAudit(tx, {
       actorAppUserId,
@@ -370,7 +429,7 @@ export async function reopenEvent(args: {
       domainId,
       requestId,
       before: { status: "COMPLETED" },
-      after: { status: "SCHEDULED" },
+      after: { status: "SCHEDULED", reopenedAssignments: completedAssignments.length },
     });
   });
 }

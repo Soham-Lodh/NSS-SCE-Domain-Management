@@ -12,6 +12,7 @@ import {
 } from "@/lib/cache/query-keys";
 import { apiFetch } from "@/lib/http/client";
 import { downloadExport, uploadFile } from "@/lib/http/download";
+import { useFeedback } from "@/components/providers/feedback-provider";
 import type {
   AddPersonResultDTO,
   AnalyticsDTO,
@@ -25,6 +26,7 @@ import type {
   MeDTO,
   PaginatedDTO,
   PendingPersonDTO,
+  ProjectDTO,
   UserRowDTO,
   VolunteerDetailDTO,
   VolunteerRowDTO,
@@ -46,6 +48,15 @@ export function useDomains() {
     queryFn: () => apiFetch<{ domains: DomainDTO[] }>("/api/domains"),
     staleTime: TTL.domains,
     select: (d) => d.domains,
+  });
+}
+
+export function useProjects() {
+  return useQuery({
+    queryKey: qk.projects(),
+    queryFn: () => apiFetch<{ projects: ProjectDTO[] }>("/api/projects"),
+    staleTime: TTL.projects,
+    select: (d) => d.projects,
   });
 }
 
@@ -88,6 +99,7 @@ export function useEvents(filters: EventFilters) {
   return useQuery({
     queryKey: qk.events(filters),
     queryFn: () => apiFetch<PaginatedDTO<EventCardDTO>>(`/api/events?${params}`),
+    enabled: !!filters.domainId,
     staleTime: TTL.events,
     placeholderData: (prev) => prev,
   });
@@ -108,6 +120,7 @@ export function useAnalytics(domainId: string | undefined, scope: "domain" | "al
   return useQuery({
     queryKey: qk.analytics({ domainId, scope }),
     queryFn: () => apiFetch<{ domains: AnalyticsDTO[] }>(`/api/analytics/overview?${params}`),
+    enabled: scope === "all" || !!domainId,
     staleTime: TTL.analytics,
   });
 }
@@ -144,65 +157,94 @@ export function useUsers(filters: { search?: string; page?: number; limit?: numb
 
 /* ---------------------------- Invalidation -------------------------------- */
 
-export function invalidate(client: QueryClient, kind: MutationKind) {
-  for (const key of invalidationKeys(kind)) {
-    void client.invalidateQueries({ queryKey: key as unknown[] });
-  }
+export async function invalidate(client: QueryClient, kind: MutationKind): Promise<void> {
+  await Promise.allSettled(
+    invalidationKeys(kind).map((key) => client.invalidateQueries({ queryKey: key as unknown[] })),
+  );
+}
+
+function mutationErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 /* ----------------------------- Mutations ---------------------------------- */
 
 export function useCreateVolunteer() {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiFetch<{ membershipId: string }>("/api/volunteers", {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => invalidate(client, "volunteer"),
+    onSuccess: async () => {
+      await invalidate(client, "volunteer");
+      feedback.success("Volunteer added and member list refreshed.");
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not add volunteer.")),
   });
 }
 
 export function useUpdateVolunteer(id: string) {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiFetch<{ ok: true }>(`/api/volunteers/${id}`, {
         method: "PATCH",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => invalidate(client, "volunteer"),
+    onSuccess: async () => {
+      await invalidate(client, "volunteer");
+      feedback.success("Volunteer updated and member list refreshed.");
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not update volunteer.")),
   });
 }
 
 export function useCreateEvent() {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiFetch<{ id: string }>("/api/events", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => invalidate(client, "event"),
+    onSuccess: async () => {
+      await invalidate(client, "event");
+      feedback.success("Event created and event list refreshed.");
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not create event.")),
   });
 }
 
 export function useUpdateEvent(id: string) {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiFetch<{ ok: true }>(`/api/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-    onSuccess: () => invalidate(client, "event"),
+    onSuccess: async () => {
+      await invalidate(client, "event");
+      feedback.success("Event updated and details refreshed.");
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not update event.")),
   });
 }
 
 export function useBulkAssign(eventId: string) {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (membershipIds: string[]) =>
       apiFetch<BulkAssignSummaryDTO>(`/api/events/${eventId}/assignments`, {
         method: "POST",
         body: JSON.stringify({ membershipIds }),
       }),
-    onSuccess: () => invalidate(client, "assignment"),
+    onSuccess: async () => {
+      await invalidate(client, "assignment");
+      feedback.success("Assignments updated and event details refreshed.");
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not update assignments.")),
   });
 }
 
@@ -214,25 +256,36 @@ export type AssignmentAction =
 
 export function useAssignmentAction(assignmentId: string, kind: MutationKind = "completion") {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (body: AssignmentAction) =>
       apiFetch<{ ok: true }>(`/api/assignments/${assignmentId}`, {
         method: "PATCH",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => invalidate(client, kind),
+    onSuccess: async (_data, variables) => {
+      await invalidate(client, kind);
+      const label = variables.action === "complete" ? "marked complete" : variables.action === "reopen" ? "reopened" : variables.action === "remove" ? "removed" : "reassigned";
+      feedback.success(`Assignment ${label} and event details refreshed.`);
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not update assignment.")),
   });
 }
 
 export function useChangeUserRole(appUserId: string) {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
-    mutationFn: (body: { role: string; domainId?: string | null }) =>
+    mutationFn: (body: { role: string; domainId?: string | null; projectId?: string | null }) =>
       apiFetch<{ ok: true }>(`/api/users/${appUserId}/role`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => invalidate(client, "role"),
+    onSuccess: async () => {
+      await invalidate(client, "role");
+      feedback.success("Role updated and user list refreshed.");
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not update role.")),
   });
 }
 
@@ -240,13 +293,18 @@ export function useChangeUserRole(appUserId: string) {
 
 export function useCreateDomain() {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (body: { name: string; description?: string | null }) =>
       apiFetch<{ id: string; created: boolean }>("/api/domains", {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => invalidate(client, "domain"),
+    onSuccess: async () => {
+      await invalidate(client, "domain");
+      feedback.success("Domain saved and lists refreshed.");
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not create domain.")),
   });
 }
 
@@ -261,25 +319,32 @@ export function usePendingPeople() {
 
 export function useAddPerson() {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
-    mutationFn: (body: { fullName: string; email: string; role: string; domainId?: string | null }) =>
+    mutationFn: (body: { fullName: string; email: string; role: string; domainId?: string | null; projectId?: string | null }) =>
       apiFetch<AddPersonResultDTO>("/api/admin/people", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => {
-      invalidate(client, "role");
-      void client.invalidateQueries({ queryKey: ["pending-people"] });
+    onSuccess: async () => {
+      await invalidate(client, "role");
+      await invalidate(client, "volunteer");
+      await client.invalidateQueries({ queryKey: ["pending-people"] });
+      feedback.success("Person saved and access lists refreshed.");
     },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not add person.")),
   });
 }
 
 export function useRemovePerson() {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (body: { id: string; kind: "user" | "pending" }) =>
       apiFetch<{ ok: true }>(`/api/admin/people/${body.id}?kind=${body.kind}`, { method: "DELETE" }),
-    onSuccess: () => {
-      invalidate(client, "role");
-      void client.invalidateQueries({ queryKey: ["pending-people"] });
+    onSuccess: async () => {
+      await invalidate(client, "role");
+      await client.invalidateQueries({ queryKey: ["pending-people"] });
+      feedback.success("Person removed and access lists refreshed.");
     },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not remove person.")),
   });
 }
 
@@ -293,26 +358,36 @@ export function useImportVolunteers() {
 /** Step 2 — commit confirmed rows. */
 export function useImportCommit() {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (rows: Record<string, string>[]) =>
       apiFetch<ImportCommitResultDTO>("/api/volunteers/import/commit", {
         method: "POST",
         body: JSON.stringify({ rows }),
       }),
-    onSuccess: () => invalidate(client, "volunteer"),
+    onSuccess: async (result) => {
+      await invalidate(client, "volunteer");
+      feedback.success(`${result.created} volunteer(s) imported and member list refreshed.`);
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not import volunteers.")),
   });
 }
 
 /** End / re-open an event. */
 export function useEventLifecycle(eventId: string) {
   const client = useQueryClient();
+  const feedback = useFeedback();
   return useMutation({
     mutationFn: (action: "complete" | "reopen") =>
       apiFetch<{ ok: true }>(`/api/events/${eventId}/lifecycle`, {
         method: "POST",
         body: JSON.stringify({ action }),
       }),
-    onSuccess: () => invalidate(client, "event"),
+    onSuccess: async (_result, action) => {
+      await invalidate(client, "event");
+      feedback.success(action === "complete" ? "Event ended and details refreshed." : "Event reopened and details refreshed.");
+    },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not update event status.")),
   });
 }
 

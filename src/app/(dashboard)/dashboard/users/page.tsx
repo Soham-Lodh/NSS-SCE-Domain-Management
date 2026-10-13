@@ -22,6 +22,7 @@ import {
   useDomains,
   useMe,
   usePendingPeople,
+  useProjects,
   useRemovePerson,
   useUsers,
 } from "@/hooks/api-hooks";
@@ -190,8 +191,9 @@ export default function UsersPage() {
               <Th>Name</Th>
               <Th>Email</Th>
               <Th>Role</Th>
-              <Th>Domain</Th>
-              <Th className="text-right">Action</Th>
+                <Th>Domain</Th>
+                <Th>Project</Th>
+                <Th className="text-right">Action</Th>
             </tr>
           </thead>
           <tbody>
@@ -203,6 +205,7 @@ export default function UsersPage() {
                   <Badge tone="accent">{p.role}</Badge>
                 </Td>
                 <Td>{p.domainName ?? "—"}</Td>
+                <Td>{p.projectName ?? "—"}</Td>
                 <Td>
                   <div className="flex justify-end">
                     <Button
@@ -229,12 +232,14 @@ export default function UsersPage() {
 
 function AddPersonModal({ onClose }: { onClose: () => void }) {
   const domains = useDomains();
+  const projects = useProjects();
   const add = useAddPerson();
-  const [form, setForm] = useState<{ fullName: string; email: string; role: AppRole; domainId: string }>({
+  const [form, setForm] = useState<{ fullName: string; email: string; role: AppRole; domainId: string; projectId: string }>({
     fullName: "",
     email: "",
     role: "COORDINATOR",
     domainId: "",
+    projectId: "",
   });
   const [message, setMessage] = useState<string | null>(null);
 
@@ -242,8 +247,7 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
   const valid =
     form.fullName.trim().length >= 2 &&
     /.+@.+/.test(form.email) &&
-    (!needsDomain || (form.role === "VOLUNTEER" ? true : !!form.domainId)) &&
-    !(form.role === "DOMAIN_LEAD" && !form.domainId);
+    (!needsDomain || (!!form.domainId && !!form.projectId));
 
   function submit() {
     setMessage(null);
@@ -253,6 +257,7 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
         email: form.email,
         role: form.role,
         domainId: needsDomain && form.domainId ? form.domainId : null,
+        projectId: needsDomain && form.projectId ? form.projectId : null,
       },
       {
         onSuccess: (res) => {
@@ -311,6 +316,18 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
             </Select>
           </Field>
         )}
+        {needsDomain && (
+          <Field label="Project" hint="Required">
+            <Select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
+              <option value="">Select a project…</option>
+              {projects.data?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         {message && <p className="text-xs font-medium text-[color:var(--brand-navy)]">{message}</p>}
         <p className="text-[11px] text-[color:var(--navy-45)]">
           Tech team can add tech team members; only coordinators can add coordinators. Everything is audited.
@@ -322,15 +339,21 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
 
 function RoleModal({ user, onClose }: { user: UserRowDTO; onClose: () => void }) {
   const domains = useDomains();
+  const projects = useProjects();
   const change = useChangeUserRole(user.appUserId);
   const [role, setRole] = useState<AppRole>(user.role);
   const [domainId, setDomainId] = useState<string>(user.domainId ?? "");
+  const [projectId, setProjectId] = useState<string>("");
   const [message, setMessage] = useState<string | null>(null);
 
   function submit() {
     setMessage(null);
     change.mutate(
-      { role, domainId: role === "DOMAIN_LEAD" ? domainId : null },
+      {
+        role,
+        domainId: role === "DOMAIN_LEAD" || role === "VOLUNTEER" ? domainId : null,
+        projectId: role === "DOMAIN_LEAD" || role === "VOLUNTEER" ? projectId : null,
+      },
       {
         onSuccess: () => {
           setMessage("Role updated.");
@@ -351,7 +374,11 @@ function RoleModal({ user, onClose }: { user: UserRowDTO; onClose: () => void })
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={submit} loading={change.isPending} disabled={role === "DOMAIN_LEAD" && !domainId}>
+          <Button
+            onClick={submit}
+            loading={change.isPending}
+            disabled={(role === "DOMAIN_LEAD" || role === "VOLUNTEER") && (!domainId || !projectId)}
+          >
             Save
           </Button>
         </>
@@ -366,13 +393,25 @@ function RoleModal({ user, onClose }: { user: UserRowDTO; onClose: () => void })
             <option value="COORDINATOR">Coordinator</option>
           </Select>
         </Field>
-        {role === "DOMAIN_LEAD" && (
+        {(role === "DOMAIN_LEAD" || role === "VOLUNTEER") && (
           <Field label="Domain">
             <Select value={domainId} onChange={(e) => setDomainId(e.target.value)}>
               <option value="">Select a domain…</option>
               {domains.data?.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {(role === "DOMAIN_LEAD" || role === "VOLUNTEER") && (
+          <Field label="Project">
+            <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">Select a project…</option>
+              {projects.data?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </Select>

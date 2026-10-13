@@ -3,12 +3,12 @@ import { parseBody, protectedRoute, requireUuidParam } from "@/lib/api/route";
 import {
   requireAuthContext,
   assertCanOperateEvents,
-  resolveDomainScope,
   assertSameOrigin,
 } from "@/lib/authorization/require";
 import { assignmentActionSchema } from "@/lib/validation/schemas";
 import {
   completeAssignment,
+  getAssignmentDomainId,
   reassignAssignment,
   removeAssignment,
   reopenAssignment,
@@ -23,7 +23,7 @@ export const PATCH = protectedRoute<Ctx>(async (req, requestId, ctx) => {
   const auth = await requireAuthContext({ requestId, provision: true });
   const { id } = await ctx.params;
   const assignmentId = requireUuidParam(id);
-  const domainId = resolveDomainScope(auth);
+  const domainId = await getAssignmentDomainId(assignmentId);
   assertCanOperateEvents(auth, domainId);
 
   const body = await parseBody(req, assignmentActionSchema);

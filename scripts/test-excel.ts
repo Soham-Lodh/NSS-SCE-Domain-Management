@@ -37,23 +37,21 @@ async function main() {
   // Clean any leftover from a previous run (children first).
   const stale = await prisma.domain.findMany({ where: { name: TEMP }, select: { id: true } });
   for (const s of stale) {
-    await prisma.project.deleteMany({ where: { domainId: s.id } });
     await prisma.volunteerMembership.deleteMany({ where: { domainId: s.id } });
     await prisma.domain.delete({ where: { id: s.id } }).catch(() => {});
   }
 
   let domainId = "";
   try {
-    // Seed a temp domain + one project so the "valid" path can be exercised.
+    // Seed a temp domain; projects are global canonical groups.
     const domain = await prisma.domain.create({ data: { name: TEMP, description: "temporary verification" } });
     domainId = domain.id;
-    await prisma.project.create({ data: { domainId, name: "Test Project" } });
 
     // Build a sample workbook matching the agreed columns.
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Volunteers");
     ws.addRow(["Email Address", "Name", "Roll No", "Year", "Gender", "Domain", "Project"]);
-    ws.addRow([`ok1@${process.env.ALLOWED_EMAIL_DOMAINS}`, "Valid One", "VERIFY001", "3", "Female", TEMP, "Test Project"]);
+    ws.addRow([`ok1@${process.env.ALLOWED_EMAIL_DOMAINS}`, "Valid One", "VERIFY001", "3", "Female", TEMP, "Nidaan"]);
     ws.addRow(["evil@gmail.com", "Bad Email", "VERIFY002", "2", "Male", TEMP, ""]);
     ws.addRow([`ok2@${process.env.ALLOWED_EMAIL_DOMAINS}`, "Unknown Domain", "VERIFY003", "1", "Male", "Nonexistent Domain", ""]);
     ws.addRow([`ok1@${process.env.ALLOWED_EMAIL_DOMAINS}`, "Duplicate Email", "VERIFY004", "4", "Other", TEMP, ""]);
@@ -100,7 +98,6 @@ async function main() {
     try {
       const d = await prisma.domain.findFirst({ where: { name: TEMP }, select: { id: true } });
       if (d) {
-        await prisma.project.deleteMany({ where: { domainId: d.id } });
         await prisma.volunteerMembership.deleteMany({ where: { domainId: d.id } });
         await prisma.domain.delete({ where: { id: d.id } });
       }

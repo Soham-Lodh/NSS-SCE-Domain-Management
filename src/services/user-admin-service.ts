@@ -82,7 +82,8 @@ export async function listUsers(args: {
 }
 
 /**
- * Sets a user's role (replacing their active grant — v1 single-role model).
+ * Sets a user's role. Domain-lead grants are additive per domain; top-level
+ * roles still replace the previous active grants.
  *
  * Enforces, in one transaction:
  *  - no self role change
@@ -95,13 +96,17 @@ export async function changeUserRole(args: {
   targetAppUserId: string;
   role: AppRole;
   domainId: string | null;
+  projectId?: string | null;
   requestId: string;
 }): Promise<void> {
-  const { actor, targetAppUserId, role, domainId, requestId } = args;
+  const { actor, targetAppUserId, role, domainId, projectId, requestId } = args;
 
   if (actor.appUserId === targetAppUserId) throw forbidden("You cannot change your own role.");
   if (role === "DOMAIN_LEAD" && !domainId) {
     throw validationError({ domainId: "A domain is required for a domain lead." });
+  }
+  if ((role === "DOMAIN_LEAD" || role === "VOLUNTEER") && !projectId) {
+    throw validationError({ projectId: "A project is required for a domain member." });
   }
 
   await prisma.$transaction(async (tx) => {
@@ -118,10 +123,140 @@ export async function changeUserRole(args: {
       const domain = await tx.domain.findUnique({ where: { id: domainId }, select: { id: true, name: true } });
       if (!domain) throw validationError({ domainId: "Unknown domain." });
     }
+    if (projectId) {
+      const project = await tx.project.findFirst({ where: { id: projectId, isActive: true }, select: { id: true } });
+      if (!project) throw validationError({ projectId: "Select one of the approved projects." });
+    }
 
     const currentRoles = new Set(target.roleGrants.map((g) => g.role));
     const currentlyCoordinator = currentRoles.has("COORDINATOR");
     const currentlyTech = currentRoles.has("TECH_TEAM");
+
+    if (role === "DOMAIN_LEAD") {
+      if (!canManageVolunteerMaster(actor.roles)) throw forbidden();
+
+      const before = {
+        roles: Array.from(currentRoles),
+        domainIds: target.roleGrants
+          .filter((g) => g.role === "DOMAIN_LEAD" && g.domainId)
+          .map((g) => g.domainId),
+      };
+
+      const existingGrant = target.roleGrants.find((g) => g.role === "DOMAIN_LEAD" && g.domainId === domainId);
+      if (!existingGrant) {
+        await tx.roleGrant.create({
+          data: {
+            appUserId: targetAppUserId,
+            role,
+            domainId,
+            isActive: true,
+            grantedByAppUserId: actor.appUserId,
+          },
+        });
+      }
+
+      const existingMembership = await tx.volunteerMembership.findFirst({
+        where: { personId: target.personId, domainId: domainId! },
+        select: { id: true, isActive: true },
+      });
+      if (existingMembership) {
+        await tx.volunteerMembership.update({
+          where: { id: existingMembership.id },
+          data: { isActive: true, endedAt: null, projectId },
+        });
+      } else {
+        await tx.volunteerMembership.create({
+          data: { personId: target.personId, domainId: domainId!, projectId },
+        });
+      }
+
+      await writeAudit(tx, {
+        actorAppUserId: actor.appUserId,
+        action: existingGrant ? "ROLE_CHANGED" : "ROLE_ASSIGNED",
+        targetType: "AppUser",
+        targetId: targetAppUserId,
+        domainId,
+        requestId,
+        before,
+        after: {
+          roles: Array.from(new Set([...Array.from(currentRoles), "DOMAIN_LEAD"])),
+          domainIds: Array.from(new Set([...before.domainIds, domainId])),
+        },
+      });
+
+      if (!existingGrant) {
+        await enqueueEmail(tx, {
+          eventType: "ROLE_ASSIGNED",
+          templateKey: "DOMAIN_LEAD_ASSIGNED",
+          recipient: target.person.emailNormalized,
+          payload: { fullName: target.person.fullName, role, domainId },
+          idempotencyKey: `domain-lead:${targetAppUserId}:${domainId}`,
+        });
+      }
+      return;
+    }
+
+    if (role === "VOLUNTEER") {
+      if (!domainId) throw validationError({ domainId: "A domain is required for a volunteer." });
+      if (!canManageVolunteerMaster(actor.roles)) throw forbidden();
+
+      const before = {
+        roles: Array.from(currentRoles),
+        domainIds: target.roleGrants
+          .filter((g) => g.role === "DOMAIN_LEAD" && g.domainId)
+          .map((g) => g.domainId),
+      };
+
+      await tx.roleGrant.updateMany({
+        where: { appUserId: targetAppUserId, isActive: true },
+        data: { isActive: false, revokedAt: new Date() },
+      });
+
+      await tx.roleGrant.create({
+        data: {
+          appUserId: targetAppUserId,
+          role,
+          domainId: null,
+          isActive: true,
+          grantedByAppUserId: actor.appUserId,
+        },
+      });
+
+      const existingMembership = await tx.volunteerMembership.findFirst({
+        where: { personId: target.personId, domainId },
+        select: { id: true },
+      });
+      if (existingMembership) {
+        await tx.volunteerMembership.update({
+          where: { id: existingMembership.id },
+          data: { isActive: true, endedAt: null, projectId },
+        });
+      } else {
+        await tx.volunteerMembership.create({
+          data: { personId: target.personId, domainId, projectId },
+        });
+      }
+
+      await writeAudit(tx, {
+        actorAppUserId: actor.appUserId,
+        action: "ROLE_CHANGED",
+        targetType: "AppUser",
+        targetId: targetAppUserId,
+        domainId,
+        requestId,
+        before,
+        after: { roles: [role], domainId, projectId },
+      });
+
+      await enqueueEmail(tx, {
+        eventType: "ROLE_ASSIGNED",
+        templateKey: "ROLE_ASSIGNED",
+        recipient: target.person.emailNormalized,
+        payload: { fullName: target.person.fullName, role, domainId },
+        idempotencyKey: `role-change:${targetAppUserId}:${role}:${domainId}:${Date.now()}`,
+      });
+      return;
+    }
 
     // --- Authority checks ---
     if (role === "COORDINATOR" && !canManageCoordinators(actor.roles)) {
@@ -159,7 +294,7 @@ export async function changeUserRole(args: {
       data: {
         appUserId: targetAppUserId,
         role,
-        domainId: role === "DOMAIN_LEAD" ? domainId : null,
+        domainId: null,
         isActive: true,
         grantedByAppUserId: actor.appUserId,
       },
@@ -170,15 +305,15 @@ export async function changeUserRole(args: {
       action: "ROLE_CHANGED",
       targetType: "AppUser",
       targetId: targetAppUserId,
-      domainId: role === "DOMAIN_LEAD" ? domainId : before.domainId,
+      domainId: before.domainId,
       requestId,
       before,
-      after: { roles: [role], domainId: role === "DOMAIN_LEAD" ? domainId : null },
+      after: { roles: [role], domainId: null },
     });
 
     await enqueueEmail(tx, {
       eventType: "ROLE_ASSIGNED",
-      templateKey: role === "DOMAIN_LEAD" ? "DOMAIN_LEAD_ASSIGNED" : "ROLE_ASSIGNED",
+      templateKey: "ROLE_ASSIGNED",
       recipient: target.person.emailNormalized,
       payload: { fullName: target.person.fullName, role },
       idempotencyKey: `role-change:${targetAppUserId}:${role}:${Date.now()}`,

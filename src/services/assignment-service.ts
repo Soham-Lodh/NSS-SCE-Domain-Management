@@ -18,6 +18,15 @@ export type BulkAssignSummary = {
   results: BulkAssignOutcome[];
 };
 
+export async function getAssignmentDomainId(assignmentId: string): Promise<string> {
+  const assignment = await prisma.eventAssignment.findUnique({
+    where: { id: assignmentId },
+    select: { event: { select: { domainId: true } } },
+  });
+  if (!assignment) throw notFound("Assignment not found.");
+  return assignment.event.domainId;
+}
+
 /**
  * Assigns multiple volunteers (memberships) to one event.
  *
@@ -42,8 +51,8 @@ export async function bulkAssign(args: {
       select: { id: true, title: true, status: true },
     });
     if (!event) throw notFound("Event not found.");
-    if (event.status === "CANCELLED") {
-      throw validationError({ eventId: "Cannot assign to a cancelled event." });
+    if (event.status !== "SCHEDULED") {
+      throw validationError({ eventId: "Reopen the event before changing assignments." });
     }
 
     // Validate memberships belong to this domain AND are active in one query.
@@ -181,9 +190,18 @@ export async function completeAssignment(args: {
   await prisma.$transaction(async (tx) => {
     const assignment = await tx.eventAssignment.findFirst({
       where: { id: assignmentId, removedAt: null, event: { domainId } },
-      select: { id: true, status: true, eventId: true, volunteerMembershipId: true },
+      select: {
+        id: true,
+        status: true,
+        eventId: true,
+        volunteerMembershipId: true,
+        event: { select: { status: true } },
+      },
     });
     if (!assignment) throw notFound("Assignment not found.");
+    if (assignment.event.status !== "SCHEDULED") {
+      throw validationError({ assignmentId: "Reopen the event before changing assignments." });
+    }
     if (assignment.status === "COMPLETED") return; // idempotent no-op
 
     await tx.eventAssignment.update({
@@ -226,9 +244,12 @@ export async function reopenAssignment(args: {
   await prisma.$transaction(async (tx) => {
     const assignment = await tx.eventAssignment.findFirst({
       where: { id: assignmentId, removedAt: null, event: { domainId } },
-      select: { id: true, status: true, eventId: true },
+      select: { id: true, status: true, eventId: true, event: { select: { status: true } } },
     });
     if (!assignment) throw notFound("Assignment not found.");
+    if (assignment.event.status !== "SCHEDULED") {
+      throw validationError({ assignmentId: "Reopen the event before changing assignments." });
+    }
     if (assignment.status === "ASSIGNED") return;
 
     await tx.eventAssignment.update({
@@ -275,9 +296,18 @@ export async function removeAssignment(args: {
   await prisma.$transaction(async (tx) => {
     const assignment = await tx.eventAssignment.findFirst({
       where: { id: assignmentId, removedAt: null, event: { domainId } },
-      select: { id: true, status: true, eventId: true, volunteerMembershipId: true },
+      select: {
+        id: true,
+        status: true,
+        eventId: true,
+        volunteerMembershipId: true,
+        event: { select: { status: true } },
+      },
     });
     if (!assignment) throw notFound("Assignment not found.");
+    if (assignment.event.status !== "SCHEDULED") {
+      throw validationError({ assignmentId: "Reopen the event before changing assignments." });
+    }
 
     await tx.eventAssignment.update({
       where: { id: assignmentId },
@@ -323,9 +353,18 @@ export async function reassignAssignment(args: {
   await prisma.$transaction(async (tx) => {
     const source = await tx.eventAssignment.findFirst({
       where: { id: assignmentId, removedAt: null, event: { domainId } },
-      select: { id: true, eventId: true, status: true, volunteerMembershipId: true },
+      select: {
+        id: true,
+        eventId: true,
+        status: true,
+        volunteerMembershipId: true,
+        event: { select: { status: true } },
+      },
     });
     if (!source) throw notFound("Assignment not found.");
+    if (source.event.status !== "SCHEDULED") {
+      throw validationError({ assignmentId: "Reopen the event before changing assignments." });
+    }
     if (source.eventId === targetEventId) {
       throw validationError({ targetEventId: "Already assigned to that event." });
     }
@@ -335,8 +374,8 @@ export async function reassignAssignment(args: {
       select: { id: true, title: true, status: true },
     });
     if (!target) throw notFound("Target event not found.");
-    if (target.status === "CANCELLED") {
-      throw validationError({ targetEventId: "Cannot reassign to a cancelled event." });
+    if (target.status !== "SCHEDULED") {
+      throw validationError({ targetEventId: "Cannot reassign to a closed event." });
     }
 
     // Close the source.
@@ -351,7 +390,7 @@ export async function reassignAssignment(args: {
       // Reactivate the destination row instead of duplicating.
       await tx.eventAssignment.update({
         where: { id: existingTarget.id },
-        data: { removedAt: null },
+        data: { status: "ASSIGNED", removedAt: null, completedAt: null },
       });
       newAssignmentId = existingTarget.id;
     } else {

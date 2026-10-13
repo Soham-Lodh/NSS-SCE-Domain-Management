@@ -55,7 +55,7 @@ export function assertCanManageRole(
 /**
  * Resolves and authorizes the effective domain scope for a read/write.
  * - Oversight roles (tech/coordinator) may target any domain.
- * - A domain lead may only target their own domain.
+ * - A domain lead may target any domain they actively lead.
  * - Anyone else (volunteer) is denied.
  * Never trust a domainId from the client without this check.
  */
@@ -64,9 +64,10 @@ export function resolveDomainScope(ctx: AuthContext, requestedDomainId?: string)
     if (!requestedDomainId) throw forbidden("A domain must be specified.");
     return requestedDomainId;
   }
-  if (canOperateEvents(ctx.roles) && ctx.domainId) {
-    if (requestedDomainId && requestedDomainId !== ctx.domainId) throw forbidden();
-    return ctx.domainId;
+  if (canOperateEvents(ctx.roles) && ctx.domainIds.length > 0) {
+    const domainId = requestedDomainId ?? ctx.domainIds[0];
+    if (!ctx.domainIds.includes(domainId)) throw forbidden();
+    return domainId;
   }
   throw forbidden();
 }
@@ -74,7 +75,7 @@ export function resolveDomainScope(ctx: AuthContext, requestedDomainId?: string)
 /** Domain-lead-only event/assignment operation inside their own domain. */
 export function assertCanOperateEvents(ctx: AuthContext, domainId: string): void {
   if (!canOperateEvents(ctx.roles)) throw forbidden();
-  if (ctx.domainId !== domainId) throw forbidden();
+  if (!ctx.domainIds.includes(domainId)) throw forbidden();
 }
 
 /**
@@ -86,7 +87,7 @@ export function assertSameOrigin(req: Request): void {
   // Non-browser / server-to-server callers may omit Origin; only browser
   // requests that present a mismatched Origin are rejected.
   if (!origin) return;
-  const allowed = new Set([serverEnv().APP_URL, ...allowedOrigins()]);
+  const allowed = new Set([serverEnv().APP_URL, new URL(req.url).origin, ...allowedOrigins()]);
   try {
     const originUrl = new URL(origin);
     const ok = Array.from(allowed).some((a) => {

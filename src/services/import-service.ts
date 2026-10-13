@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { allowedEmailDomains } from "@/lib/env";
 import { isEmailAllowed, normalizeEmail } from "@/lib/authorization/email";
 import { writeAudit } from "@/lib/audit/write-audit";
+import { getProjectByName, listActiveProjects } from "@/services/project-service";
 import type { ImportRowInput } from "@/lib/validation/schemas";
 
 export type ImportRowStatus = "valid" | "invalid" | "duplicate";
@@ -119,8 +120,10 @@ export async function validateImport(rawRows: RawRow[]): Promise<ImportPreview> 
   const domainsAllowed = allowedEmailDomains();
   const domains = await prisma.domain.findMany({
     where: { isActive: true },
-    select: { id: true, name: true, projects: { select: { name: true } } },
+    select: { id: true, name: true },
   });
+  const projects = await listActiveProjects();
+  const projectNames = new Set(projects.map((p) => p.name.trim().toLowerCase()));
   const domainByName = new Map(domains.map((d) => [d.name.trim().toLowerCase(), d]));
 
   const previewRows: ImportPreviewRow[] = [];
@@ -174,9 +177,11 @@ export async function validateImport(rawRows: RawRow[]): Promise<ImportPreview> 
     if (!domain) {
       return reject(`Unknown domain "${domainName || "(blank)"}" — must match an existing domain.`);
     }
-    if (projectName) {
-      const projectOk = domain.projects.some((p) => p.name.trim().toLowerCase() === projectName.toLowerCase());
-      if (!projectOk) return reject(`Unknown project "${projectName}" for domain "${domain.name}".`);
+    if (!projectName) {
+      return reject("Project is required.");
+    }
+    if (!projectNames.has(projectName.toLowerCase())) {
+      return reject(`Unknown project "${projectName}".`);
     }
 
     const emailKey = email;
@@ -228,7 +233,7 @@ export async function commitImport(args: {
 
   const domains = await prisma.domain.findMany({
     where: { isActive: true },
-    select: { id: true, name: true, projects: { select: { id: true, name: true } } },
+    select: { id: true, name: true },
   });
   const domainByName = new Map(domains.map((d) => [d.name.trim().toLowerCase(), d]));
   const allowed = allowedEmailDomains();
@@ -252,11 +257,10 @@ export async function commitImport(args: {
       skippedRows.push({ rowIndex: 0, email, reason: `Unknown domain "${domainName}".` });
       continue;
     }
-    const project = row.projectName
-      ? domain.projects.find((p) => p.name.trim().toLowerCase() === row.projectName.trim().toLowerCase())
-      : undefined;
-    if (row.projectName && !project) {
-      skippedRows.push({ rowIndex: 0, email, reason: `Unknown project "${row.projectName}".` });
+    const projectName = row.projectName.trim();
+    const project = projectName ? await getProjectByName(projectName) : null;
+    if (!project) {
+      skippedRows.push({ rowIndex: 0, email, reason: projectName ? `Unknown project "${row.projectName}".` : "Project is required." });
       continue;
     }
 
@@ -273,7 +277,7 @@ export async function commitImport(args: {
             return;
           }
           const m = await tx.volunteerMembership.create({
-            data: { personId: existingPerson.id, domainId: domain.id, projectId: project?.id ?? null },
+            data: { personId: existingPerson.id, domainId: domain.id, projectId: project.id },
           });
           await writeAudit(tx, {
             actorAppUserId,
@@ -282,7 +286,7 @@ export async function commitImport(args: {
             targetId: m.id,
             domainId: domain.id,
             requestId,
-            after: { email, domain: domain.name, project: project?.name ?? null },
+            after: { email, domain: domain.name, project: project.name },
           });
           created += 1;
           return;
@@ -306,7 +310,7 @@ export async function commitImport(args: {
           },
         });
         const m = await tx.volunteerMembership.create({
-          data: { personId: person.id, domainId: domain.id, projectId: project?.id ?? null },
+          data: { personId: person.id, domainId: domain.id, projectId: project.id },
         });
         await writeAudit(tx, {
           actorAppUserId,
@@ -315,7 +319,7 @@ export async function commitImport(args: {
           targetId: m.id,
           domainId: domain.id,
           requestId,
-          after: { email, domain: domain.name, project: project?.name ?? null, rollNumber },
+          after: { email, domain: domain.name, project: project.name, rollNumber },
         });
         created += 1;
       });

@@ -13,6 +13,7 @@
 export const TTL = {
   me: 60_000,
   domains: 5 * 60_000,
+  projects: 5 * 60_000,
   users: 20_000,
   volunteers: 20_000,
   volunteerDetail: 20_000,
@@ -52,6 +53,7 @@ export type AuditFilters = {
 export const qk = {
   me: () => ["me"] as const,
   domains: () => ["domains"] as const,
+  projects: () => ["projects"] as const,
   users: (f: Record<string, unknown> = {}) => ["users", f] as const,
   volunteers: (f: VolunteerFilters = {}) => ["volunteers", f] as const,
   volunteer: (id: string) => ["volunteer", id] as const,

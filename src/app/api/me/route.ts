@@ -14,6 +14,7 @@ export const GET = protectedRoute(async (_req, requestId) => {
       role: ctx.role,
       roles: ctx.roles,
       domainId: ctx.domainId,
+      domainIds: ctx.domainIds,
       isActive: ctx.isActive,
     },
     requestId,

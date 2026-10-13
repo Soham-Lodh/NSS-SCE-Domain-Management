@@ -13,7 +13,10 @@ export const dynamic = "force-dynamic";
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getAuthContext({ provision: true });
   if (!ctx) redirect("/login");
-  if (ctx.roles.length === 0) redirect("/unauthorized");
+  const hasPortalRole = ctx.roles.some((role) =>
+    role === "DOMAIN_LEAD" || role === "TECH_TEAM" || role === "COORDINATOR",
+  );
+  if (!hasPortalRole) redirect("/unauthorized");
 
   let domainName: string | null = null;
   if (ctx.domainId) {

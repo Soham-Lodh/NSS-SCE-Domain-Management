@@ -22,6 +22,8 @@ export type AuthContext = {
   role: AppRole;
   /** The domain the user leads, if they hold an active DOMAIN_LEAD grant. */
   domainId: string | null;
+  /** Every domain the user actively leads. A lead may manage more than one. */
+  domainIds: string[];
   isActive: boolean;
   requestId?: string;
 };
