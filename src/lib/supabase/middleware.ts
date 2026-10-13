@@ -40,6 +40,7 @@ export async function updateSession(request: NextRequest) {
     path === "/" ||
     path.startsWith("/login") ||
     path.startsWith("/auth") ||
+    path.startsWith("/unauthorized") ||
     path === "/nss-logo.jpg" ||
     path === "/favicon.ico";
 

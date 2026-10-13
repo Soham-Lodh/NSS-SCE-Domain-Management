@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/layout/app-shell";
 import { DataPanel } from "@/components/dashboard/data-panel";
 import {
@@ -43,7 +43,6 @@ export default function VolunteersPage() {
   const domains = useDomains();
   const isOversight = !!me.data && (me.data.roles.includes("TECH_TEAM") || me.data.roles.includes("COORDINATOR"));
   const canManage = isOversight;
-  const isDomainLead = !!me.data?.domainId;
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search);
@@ -53,6 +52,7 @@ export default function VolunteersPage() {
 
   const effectiveDomainId = (me.data?.domainId ?? selectedDomain) || undefined;
   const canLoad = !!effectiveDomainId;
+  const waitingForDomainSelection = isOversight && !effectiveDomainId;
 
   const query = useVolunteers({
     domainId: effectiveDomainId,
@@ -162,13 +162,13 @@ export default function VolunteersPage() {
       <DataPanel
         title="Members"
         subtitle={query.data ? `${query.data.total} record(s)` : undefined}
-        isLoading={me.isLoading || query.isLoading || (isOversight && !effectiveDomainId)}
-        isError={query.isError}
+        isLoading={me.isLoading || (!!effectiveDomainId && query.isLoading)}
+        isError={!waitingForDomainSelection && query.isError}
         error={query.error}
-        isEmpty={(query.data?.items.length ?? 0) === 0}
-        emptyTitle={isOversight && !effectiveDomainId ? "Select a domain" : "No members found"}
+        isEmpty={waitingForDomainSelection || (query.data?.items.length ?? 0) === 0}
+        emptyTitle={waitingForDomainSelection ? "Select a domain" : "No members found"}
         emptyDescription={
-          isOversight && !effectiveDomainId
+          waitingForDomainSelection
             ? "Choose a domain above to list its volunteers."
             : "Try changing your search or filters, or import an Excel sheet."
         }
@@ -265,6 +265,15 @@ function CreateVolunteerModal({
     domainId: defaultDomainId ?? domains[0]?.id ?? "",
   });
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!form.domainId && (defaultDomainId || domains[0]?.id)) {
+      setForm((current) => ({
+        ...current,
+        domainId: defaultDomainId ?? domains[0]?.id ?? "",
+      }));
+    }
+  }, [defaultDomainId, domains, form.domainId]);
 
   function submit() {
     setMessage(null);

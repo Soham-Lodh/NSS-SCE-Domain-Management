@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { logger } from "@/lib/observability/logger";
 import { escapeHtml, sendEmail, type OutboundEmail } from "@/lib/email/brevo";
@@ -58,17 +58,28 @@ export async function enqueueEmail(
     idempotencyKey?: string;
   },
 ): Promise<void> {
-  await tx.emailOutbox.create({
-    data: {
-      eventType: args.eventType,
-      templateKey: args.templateKey,
-      recipient: args.recipient,
-      payloadJson: args.payload as Prisma.InputJsonValue,
-      status: "PENDING",
-      nextAttemptAt: new Date(),
-      idempotencyKey: args.idempotencyKey ?? null,
-    },
-  });
+  try {
+    await tx.emailOutbox.create({
+      data: {
+        eventType: args.eventType,
+        templateKey: args.templateKey,
+        recipient: args.recipient,
+        payloadJson: args.payload as Prisma.InputJsonValue,
+        status: "PENDING",
+        nextAttemptAt: new Date(),
+        idempotencyKey: args.idempotencyKey ?? null,
+      },
+    });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002" &&
+      args.idempotencyKey
+    ) {
+      return;
+    }
+    throw err;
+  }
 }
 
 const MAX_ATTEMPTS = 5;

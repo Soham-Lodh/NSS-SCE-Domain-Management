@@ -23,16 +23,16 @@ export type VolunteerRow = {
 };
 
 type RawRow = {
-  membership_id: string;
-  person_id: string;
-  full_name: string;
-  email_normalized: string;
-  roll_number_normalized: string | null;
-  project_name: string | null;
-  is_active: boolean;
-  completed_count: bigint;
-  assigned_count: bigint;
-  upcoming_count: bigint;
+  membershipId: string;
+  personId: string;
+  fullName: string;
+  emailNormalized: string;
+  rollNumberNormalized: string | null;
+  projectName: string | null;
+  isActive: boolean;
+  completedCount: bigint;
+  assignedCount: bigint;
+  upcomingCount: bigint;
   total: bigint;
 };
 
@@ -57,16 +57,16 @@ export async function listVolunteers(args: {
 
   const rows = await prisma.$queryRaw<RawRow[]>`
     SELECT
-      vm.id                         AS membership_id,
-      p.id                          AS person_id,
-      p.full_name                   AS full_name,
-      p.email_normalized            AS email_normalized,
-      p.roll_number_normalized      AS roll_number_normalized,
-      pr.name                       AS project_name,
-      vm.is_active                  AS is_active,
-      COALESCE(SUM(CASE WHEN ea.status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS completed_count,
-      COALESCE(COUNT(ea.id), 0)     AS assigned_count,
-      COALESCE(SUM(CASE WHEN ea.status = 'ASSIGNED' AND e.status <> 'CANCELLED' AND e.end_at > now() THEN 1 ELSE 0 END), 0) AS upcoming_count,
+      vm.id                         AS "membershipId",
+      p.id                          AS "personId",
+      p."fullName"                  AS "fullName",
+      p."emailNormalized"           AS "emailNormalized",
+      p."rollNumberNormalized"      AS "rollNumberNormalized",
+      pr.name                       AS "projectName",
+      vm.is_active                  AS "isActive",
+      COALESCE(SUM(CASE WHEN ea.status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS "completedCount",
+      COALESCE(COUNT(ea.id), 0)     AS "assignedCount",
+      COALESCE(SUM(CASE WHEN ea.status = 'ASSIGNED' AND e.status <> 'CANCELLED' AND e.end_at > now() THEN 1 ELSE 0 END), 0) AS "upcomingCount",
       COUNT(*) OVER()               AS total
     FROM volunteer_membership vm
     JOIN person p ON p.id = vm.person_id
@@ -78,26 +78,26 @@ export async function listVolunteers(args: {
       AND (${projectId ?? null}::uuid IS NULL OR vm.project_id = ${projectId ?? null}::uuid)
       AND (
         ${search} = ''
-        OR p.full_name ILIKE ${like}
-        OR p.roll_number_normalized ILIKE ${like}
-        OR p.email_normalized ILIKE ${like}
+        OR p."fullName" ILIKE ${like}
+        OR p."rollNumberNormalized" ILIKE ${like}
+        OR p."emailNormalized" ILIKE ${like}
       )
-    GROUP BY vm.id, p.id, p.full_name, p.email_normalized, p.roll_number_normalized, pr.name, vm.is_active
-    ORDER BY completed_count DESC, p.full_name ASC, vm.id ASC
+    GROUP BY vm.id, p.id, p."fullName", p."emailNormalized", p."rollNumberNormalized", pr.name, vm.is_active
+    ORDER BY "completedCount" DESC, p."fullName" ASC, vm.id ASC
     LIMIT ${limit} OFFSET ${offset}
   `;
 
   const items: VolunteerRow[] = rows.map((r) => ({
-    membershipId: r.membership_id,
-    personId: r.person_id,
-    fullName: r.full_name,
-    email: r.email_normalized,
-    rollNumber: r.roll_number_normalized,
-    projectName: r.project_name,
-    isActive: r.is_active,
-    completedCount: Number(r.completed_count),
-    assignedCount: Number(r.assigned_count),
-    upcomingCount: Number(r.upcoming_count),
+    membershipId: r.membershipId,
+    personId: r.personId,
+    fullName: r.fullName,
+    email: r.emailNormalized,
+    rollNumber: r.rollNumberNormalized,
+    projectName: r.projectName,
+    isActive: r.isActive,
+    completedCount: Number(r.completedCount),
+    assignedCount: Number(r.assignedCount),
+    upcomingCount: Number(r.upcomingCount),
   }));
 
   const total = rows.length > 0 ? Number(rows[0].total) : 0;
@@ -136,6 +136,15 @@ export async function getVolunteerDetail(domainId: string, membershipId: string)
 
   if (!membership) throw notFound("Member not found.");
   return membership;
+}
+
+export async function getVolunteerMembershipDomainId(membershipId: string): Promise<string> {
+  const membership = await prisma.volunteerMembership.findUnique({
+    where: { id: membershipId },
+    select: { domainId: true },
+  });
+  if (!membership) throw notFound("Member not found.");
+  return membership.domainId;
 }
 
 /**

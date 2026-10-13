@@ -52,7 +52,12 @@ export async function getAuthContext(
     return null;
   }
 
-  const grants: RoleGrantView[] = appUser.roleGrants.map((g) => ({
+  const activeGrantRows =
+    appUser.roleGrants.length > 0
+      ? appUser.roleGrants
+      : await ensureImplicitVolunteerGrant(appUser.id, appUser.personId, options.requestId);
+
+  const grants: RoleGrantView[] = activeGrantRows.map((g) => ({
     role: g.role,
     domainId: g.domainId,
     isActive: g.isActive,
@@ -119,9 +124,9 @@ async function provisionUser(
         where: { emailNormalized: email },
       });
 
-      let role: AppRole = "VOLUNTEER";
+      let role: AppRole | null = null;
       let domainId: string | null = null;
-      let source: "pending" | "bootstrap" | "default" = "default";
+      let source: "pending" | "bootstrap" | "membership" | "unassigned" = "unassigned";
 
       if (pending && !pending.isConsumed) {
         role = pending.role;
@@ -134,11 +139,21 @@ async function provisionUser(
       } else if (isBootstrap) {
         role = "COORDINATOR";
         source = "bootstrap";
+      } else {
+        const activeMemberships = await tx.volunteerMembership.count({
+          where: { personId: person.id, isActive: true },
+        });
+        if (activeMemberships > 0) {
+          role = "VOLUNTEER";
+          source = "membership";
+        }
       }
 
-      await tx.roleGrant.create({
-        data: { appUserId: created.id, role, domainId, isActive: true },
-      });
+      if (role) {
+        await tx.roleGrant.create({
+          data: { appUserId: created.id, role, domainId, isActive: true },
+        });
+      }
 
       await tx.auditLog.create({
         data: {
@@ -148,12 +163,14 @@ async function provisionUser(
               ? "BOOTSTRAP_COORDINATOR_GRANTED"
               : source === "pending"
                 ? "PENDING_ROLE_APPLIED"
-                : "USER_PROVISIONED",
+                : source === "membership"
+                  ? "VOLUNTEER_ACCESS_GRANTED"
+                  : "USER_PROVISIONED_NO_ACCESS",
           targetType: "AppUser",
           targetId: created.id,
           outcome: "SUCCESS",
           requestId: requestId ?? null,
-          afterJson: { role, email },
+          afterJson: { role, email, access: role ? "granted" : "unauthorized" },
         },
       });
     }
@@ -183,6 +200,40 @@ async function provisionUser(
     isActive: true,
     requestId,
   };
+}
+
+async function ensureImplicitVolunteerGrant(
+  appUserId: string,
+  personId: string,
+  requestId?: string,
+) {
+  const activeMemberships = await prisma.volunteerMembership.count({
+    where: { personId, isActive: true },
+  });
+  if (activeMemberships === 0) return [];
+
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.roleGrant.findMany({
+      where: { appUserId, isActive: true },
+    });
+    if (existing.length > 0) return existing;
+
+    const grant = await tx.roleGrant.create({
+      data: { appUserId, role: "VOLUNTEER", isActive: true },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorAppUserId: appUserId,
+        action: "VOLUNTEER_ACCESS_GRANTED",
+        targetType: "AppUser",
+        targetId: appUserId,
+        outcome: "SUCCESS",
+        requestId: requestId ?? null,
+        afterJson: { role: "VOLUNTEER", source: "membership" },
+      },
+    });
+    return [grant];
+  });
 }
 
 /** Best-effort last-login stamp; never blocks the request. */

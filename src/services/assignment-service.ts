@@ -53,15 +53,18 @@ export async function bulkAssign(args: {
     });
     const valid = new Map(memberships.map((m) => [m.id, m]));
 
-    // Existing (not-removed) assignments for this event.
+    // Existing assignments for this event. Removed rows are reactivated instead
+    // of duplicated so the event/membership unique constraint remains the
+    // single-credit guard.
     const existing = await tx.eventAssignment.findMany({
-      where: { eventId, volunteerMembershipId: { in: membershipIds }, removedAt: null },
-      select: { volunteerMembershipId: true },
+      where: { eventId, volunteerMembershipId: { in: membershipIds } },
+      select: { id: true, volunteerMembershipId: true, removedAt: true },
     });
-    const already = new Set(existing.map((e) => e.volunteerMembershipId));
+    const existingByMembership = new Map(existing.map((e) => [e.volunteerMembershipId, e]));
 
     const results: BulkAssignOutcome[] = [];
     const toCreate: string[] = [];
+    const toReactivate: string[] = [];
 
     for (const membershipId of membershipIds) {
       if (!valid.has(membershipId)) {
@@ -72,12 +75,30 @@ export async function bulkAssign(args: {
         });
         continue;
       }
-      if (already.has(membershipId)) {
-        results.push({ membershipId, result: "already_assigned" });
-        continue;
+      const current = existingByMembership.get(membershipId);
+      if (current) {
+        if (current.removedAt === null) {
+          results.push({ membershipId, result: "already_assigned" });
+          continue;
+        }
+        toReactivate.push(current.id);
+      } else {
+        toCreate.push(membershipId);
       }
-      toCreate.push(membershipId);
       results.push({ membershipId, result: "assigned" });
+    }
+
+    if (toReactivate.length > 0) {
+      await tx.eventAssignment.updateMany({
+        where: { id: { in: toReactivate } },
+        data: {
+          status: "ASSIGNED",
+          removedAt: null,
+          completedAt: null,
+          assignedByAppUserId: actorAppUserId,
+          assignedAt: new Date(),
+        },
+      });
     }
 
     if (toCreate.length > 0) {
@@ -91,14 +112,21 @@ export async function bulkAssign(args: {
         })),
         skipDuplicates: true,
       });
+    }
 
-      const created = await tx.eventAssignment.findMany({
-        where: { eventId, volunteerMembershipId: { in: toCreate } },
+    const assignedMembershipIds = [...toCreate, ...toReactivate.map((id) => {
+      const match = existing.find((e) => e.id === id);
+      return match?.volunteerMembershipId;
+    }).filter((id): id is string => !!id)];
+
+    if (assignedMembershipIds.length > 0) {
+      const assignedRows = await tx.eventAssignment.findMany({
+        where: { eventId, volunteerMembershipId: { in: assignedMembershipIds }, removedAt: null },
         select: { id: true, volunteerMembershipId: true },
       });
 
       await tx.assignmentHistory.createMany({
-        data: created.map((c) => ({
+        data: assignedRows.map((c) => ({
           assignmentId: c.id,
           actorAppUserId,
           action: "ASSIGNED" as const,
@@ -108,7 +136,7 @@ export async function bulkAssign(args: {
         })),
       });
 
-      for (const membershipId of toCreate) {
+      for (const membershipId of assignedMembershipIds) {
         const m = valid.get(membershipId)!;
         await enqueueEmail(tx, {
           eventType: "EVENT_ASSIGNED",
@@ -127,7 +155,12 @@ export async function bulkAssign(args: {
       targetId: eventId,
       domainId,
       requestId,
-      after: { assigned: toCreate.length, alreadyAssigned: already.size, requested: membershipIds.length },
+      after: {
+        assigned: assignedMembershipIds.length,
+        reactivated: toReactivate.length,
+        alreadyAssigned: results.filter((r) => r.result === "already_assigned").length,
+        requested: membershipIds.length,
+      },
     });
 
     const assigned = results.filter((r) => r.result === "assigned").length;

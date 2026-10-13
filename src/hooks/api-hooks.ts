@@ -62,6 +62,7 @@ export function useVolunteers(filters: VolunteerFilters) {
   return useQuery({
     queryKey: qk.volunteers(filters),
     queryFn: () => apiFetch<PaginatedDTO<VolunteerRowDTO>>(`/api/volunteers?${params}`),
+    enabled: !!filters.domainId,
     staleTime: TTL.volunteers,
     placeholderData: (prev) => prev, // keep prior page while refreshing (no flicker)
   });
