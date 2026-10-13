@@ -413,8 +413,8 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     >
       <div className="space-y-3">
         <div className="surface-inset p-3 text-[11px] text-[color:var(--navy-70)]">
-          Expected columns: <strong>Email Address, Name, Roll No, Year, Gender, Domain, Project</strong>.
-          Rows with an email outside the allowed domains, an unknown domain/project, or duplicates are
+          Expected columns: <strong>Email Address, Name, Roll No, Year, Gender, Domain</strong>.
+          Rows with an email outside the allowed domains, an unknown domain or duplicates are
           rejected. Nothing is saved until you confirm the preview below.
         </div>
 
