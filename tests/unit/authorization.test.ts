@@ -10,6 +10,7 @@ import {
   canViewAuditLogs,
   canViewTechTeamActivity,
   domainLeadDomainId,
+  hasPortalAccess,
   isSelf,
   primaryRole,
   wouldRemoveLastCoordinator,
@@ -100,6 +101,24 @@ describe("role-administration hierarchy", () => {
   it("domain leads and volunteers cannot manage platform roles", () => {
     expect(canManageRole(["DOMAIN_LEAD"], "TECH_TEAM", "ADD")).toBe(false);
     expect(canManageRole(["VOLUNTEER"], "DOMAIN_LEAD", "ADD")).toBe(false);
+  });
+});
+
+describe("portal access", () => {
+  it("grants the portal to leads and oversight roles only", () => {
+    expect(hasPortalAccess(["DOMAIN_LEAD"])).toBe(true);
+    expect(hasPortalAccess(["TECH_TEAM"])).toBe(true);
+    expect(hasPortalAccess(["COORDINATOR"])).toBe(true);
+  });
+
+  it("denies volunteers and accounts with no grants", () => {
+    expect(hasPortalAccess(["VOLUNTEER"])).toBe(false);
+    expect(hasPortalAccess([])).toBe(false);
+    expect(hasPortalAccess(["VOLUNTEER", "VOLUNTEER"])).toBe(false);
+  });
+
+  it("keeps a volunteer grant combined with a portal role", () => {
+    expect(hasPortalAccess(["VOLUNTEER", "DOMAIN_LEAD"])).toBe(true);
   });
 });
 

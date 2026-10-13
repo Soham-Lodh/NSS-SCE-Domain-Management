@@ -36,6 +36,17 @@ export function domainLeadDomainIds(grants: RoleGrantView[]): string[] {
   );
 }
 
+/**
+ * Roles that may use the management portal at all. Volunteers are managed by
+ * email (reminders, assignments) and never sign in to the site; anyone without
+ * one of these grants is sent to the unauthorized page.
+ */
+export const PORTAL_ROLES: AppRole[] = ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"];
+
+export function hasPortalAccess(roles: AppRole[]): boolean {
+  return roles.some((role) => PORTAL_ROLES.includes(role));
+}
+
 /** Cross-domain read/oversight (not event operation). */
 export function canViewAllDomains(roles: AppRole[]): boolean {
   return roles.includes("TECH_TEAM") || roles.includes("COORDINATOR");

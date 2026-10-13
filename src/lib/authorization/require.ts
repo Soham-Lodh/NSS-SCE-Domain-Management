@@ -10,17 +10,29 @@ import {
   canOperateEvents,
   canViewAllDomains,
   canViewAuditLogs,
+  hasPortalAccess,
   type RoleAction,
 } from "@/lib/authorization/roles";
 import { allowedOrigins, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/observability/logger";
 
-/** Resolve context or throw 401. Optionally provision on first login. */
+/**
+ * Resolve the context for a portal API route or throw.
+ * - 401 when there is no verified, provisioned session.
+ * - 403 when the account has no portal role (volunteer / unprovisioned): they
+ *   receive event updates by email and have no access to the site's data, so
+ *   every API is denied here — the pages are only the UX layer of the same
+ *   policy.
+ */
 export async function requireAuthContext(
   options: { requestId?: string; provision?: boolean } = {},
 ): Promise<AuthContext> {
   const ctx = await getAuthContext(options);
   if (!ctx) throw unauthenticated();
+  if (!hasPortalAccess(ctx.roles)) {
+    logger.warn("portal_access_denied", { appUserId: ctx.appUserId, requestId: options.requestId });
+    throw forbidden("This account does not have portal access.");
+  }
   return ctx;
 }
 

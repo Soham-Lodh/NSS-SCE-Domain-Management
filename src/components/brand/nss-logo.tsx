@@ -5,9 +5,10 @@ import { useState } from "react";
 import { cn } from "@/lib/utils/cn";
 
 /**
- * Loads the approved brand logo from /nss-logo.jpg (i.e. public/nss-logo.jpg).
- * Dimensions are reserved to prevent layout shift. If the file is absent we
- * show a neutral monogram fallback — we never fabricate a logo asset.
+ * Approved circular NSS emblem: transparent PNG first (/nss-logo.png), then
+ * the JPEG fallback, then a neutral monogram — we never fabricate a logo asset.
+ * Rendered as a plain circle: no border, no background, no card box.
+ * Dimensions are reserved to prevent layout shift.
  */
 export function NssLogo({
   size = 40,
@@ -18,30 +19,36 @@ export function NssLogo({
   className?: string;
   withWordmark?: boolean;
 }) {
+  const [src, setSrc] = useState("/nss-logo.png");
   const [failed, setFailed] = useState(false);
+
+  const handleImageError = () => {
+    if (src.endsWith(".png")) setSrc("/nss-logo.jpg");
+    else setFailed(true);
+  };
 
   return (
     <span className={cn("inline-flex items-center gap-3", className)}>
       <span
-        className="relative grid place-items-center overflow-hidden rounded-xl border border-[color:var(--navy-18)] bg-[color:var(--brand-paper)]"
+        className="grid shrink-0 place-items-center overflow-hidden rounded-full"
         style={{ width: size, height: size }}
         aria-hidden={failed ? undefined : true}
       >
         {failed ? (
           <span
-            className="font-bold text-[color:var(--brand-navy)]"
-            style={{ fontSize: size * 0.4 }}
+            className="grid h-full w-full place-items-center rounded-full bg-[color:var(--brand-navy)] font-bold text-[color:var(--brand-paper)]"
+            style={{ fontSize: size * 0.32 }}
           >
             NSS
           </span>
         ) : (
           <Image
-            src="/nss-logo.jpg"
+            src={src}
             alt="NSS SCE KIIT logo"
             width={size}
             height={size}
-            className="h-full w-full object-contain"
-            onError={() => setFailed(true)}
+            className="h-full w-full object-cover"
+            onError={handleImageError}
             priority
           />
         )}

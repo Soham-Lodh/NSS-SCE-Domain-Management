@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { rateLimitResponse, takeRateLimit } from "@/lib/security/rate-limit";
 
 /**
  * Refreshes the Supabase session cookies on every matched request and returns
@@ -7,6 +8,16 @@ import { NextResponse, type NextRequest } from "next/server";
  * every server page/route re-verifies identity independently.
  */
 export async function updateSession(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  // Global per-client API budget, enforced BEFORE any session/database work so
+  // an anonymous flood is rejected cheaply. Per-route budgets live in the API
+  // route wrapper (see lib/api/route.ts).
+  if (path.startsWith("/api")) {
+    const global = takeRateLimit(request, "global");
+    if (!global.allowed) return rateLimitResponse(request, global);
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -35,12 +46,12 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const path = request.nextUrl.pathname;
   const isPublic =
     path === "/" ||
     path.startsWith("/login") ||
     path.startsWith("/auth") ||
     path.startsWith("/unauthorized") ||
+    path === "/nss-logo.png" ||
     path === "/nss-logo.jpg" ||
     path === "/favicon.ico";
 

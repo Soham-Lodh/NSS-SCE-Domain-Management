@@ -182,10 +182,10 @@ export default function VolunteersPage() {
         isError={!waitingForDomainSelection && query.isError}
         error={query.error}
         isEmpty={waitingForDomainSelection || (query.data?.items.length ?? 0) === 0}
-        emptyTitle={waitingForDomainSelection ? "Select a domain" : "No members found"}
+        emptyTitle={waitingForDomainSelection ? "Please select a filter to see details" : "No members found"}
         emptyDescription={
           waitingForDomainSelection
-            ? "Choose a domain above to list its volunteers."
+            ? "Choose a domain in the filter above to see its volunteers."
             : "Try changing your search or filters, or import an Excel sheet."
         }
         onRetry={() => query.refetch()}

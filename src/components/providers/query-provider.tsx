@@ -27,7 +27,9 @@ export function QueryProvider({ children }: { children: ReactNode }) {
             refetchOnReconnect: true,
             retry: (failureCount, error) => {
               if (error instanceof ApiClientError) {
-                if (["UNAUTHENTICATED", "FORBIDDEN", "NOT_FOUND", "VALIDATION_ERROR"].includes(error.code)) {
+                // Never hammer auth, permission, validation or rate-limit
+                // failures — retrying only widens the failure.
+                if (["UNAUTHENTICATED", "FORBIDDEN", "NOT_FOUND", "VALIDATION_ERROR", "RATE_LIMITED"].includes(error.code)) {
                   return false;
                 }
               }

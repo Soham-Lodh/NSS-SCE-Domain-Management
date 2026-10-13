@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
+import { protectedRoute } from "@/lib/api/route";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getAuthContext } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { requestIdOf } from "@/lib/api/response";
 import { logger } from "@/lib/observability/logger";
 
 /**
  * Logout. Attempts to write a LOGOUT audit event WHILE the session is still
  * valid, then clears the session. Documented limitation: browser close or an
  * already-expired session cannot be observed, so logout auditing is
- * best-effort and never blocks sign-out.
+ * best-effort and never blocks sign-out. Runs behind the shared rate limiter
+ * because each attempt is a database write.
  */
-export async function POST(request: Request) {
-  const requestId = requestIdOf(request);
+export const POST = protectedRoute(async (_req, requestId) => {
   try {
     const ctx = await getAuthContext();
     if (ctx) {
@@ -35,4 +35,4 @@ export async function POST(request: Request) {
   await supabase.auth.signOut();
 
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "private, no-store" } });
-}
+});

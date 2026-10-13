@@ -6,12 +6,13 @@ import { ApiControl, apiError, requestIdOf, validationError } from "@/lib/api/re
 import { recordDenial } from "@/lib/audit/write-audit";
 import { getAuthContext } from "@/lib/auth/session";
 import { logger } from "@/lib/observability/logger";
-import { addRateLimitHeaders, takeRateLimit } from "@/lib/security/rate-limit";
+import { addRateLimitHeaders, rateLimitResponse, takeRateLimit } from "@/lib/security/rate-limit";
 
 /**
- * Server-only route wrapper: injects a correlation id, maps thrown ApiControl
- * errors to the standard envelope, records authorization denials (without
- * leaking cross-domain existence) and never returns stack traces.
+ * Server-only route wrapper: rate-limits the caller, injects a correlation id,
+ * maps thrown ApiControl errors to the standard envelope, records
+ * authorization denials (without leaking cross-domain existence) and never
+ * returns stack traces.
  */
 export function protectedRoute<Ctx = unknown>(
   handler: (req: Request, requestId: string, ctx: Ctx) => Promise<NextResponse>,
@@ -19,11 +20,7 @@ export function protectedRoute<Ctx = unknown>(
   return async (req: Request, ctx: Ctx): Promise<NextResponse> => {
     const requestId = requestIdOf(req);
     const rate = takeRateLimit(req);
-    if (!rate.allowed) {
-      const response = apiError("RATE_LIMITED", "Too many requests. Please try again shortly.", requestId);
-      addRateLimitHeaders(response, rate);
-      return response;
-    }
+    if (!rate.allowed) return rateLimitResponse(req, rate);
     try {
       const response = await handler(req, requestId, ctx);
       addRateLimitHeaders(response, rate);

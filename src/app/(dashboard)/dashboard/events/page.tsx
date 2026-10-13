@@ -94,10 +94,10 @@ export default function EventsPage() {
         isError={!waitingForDomainSelection && query.isError}
         error={query.error}
         isEmpty={waitingForDomainSelection || (query.data?.items.length ?? 0) === 0}
-        emptyTitle={waitingForDomainSelection ? "Select a domain" : "No events here"}
+        emptyTitle={waitingForDomainSelection ? "Please select a filter to see details" : "No events here"}
         emptyDescription={
           waitingForDomainSelection
-            ? "Choose a domain above to view its events."
+            ? "Choose a domain in the filter above to see its events."
             : "Events you can access will appear here, sorted by date."
         }
         onRetry={() => query.refetch()}
