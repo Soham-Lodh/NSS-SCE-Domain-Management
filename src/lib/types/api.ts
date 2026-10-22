@@ -35,6 +35,7 @@ export type VolunteerRowDTO = {
   completedCount: number;
   assignedCount: number;
   upcomingCount: number;
+  totalCount: number;
 };
 
 export type EventCardDTO = {

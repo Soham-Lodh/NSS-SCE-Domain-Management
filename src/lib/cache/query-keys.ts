@@ -29,7 +29,7 @@ export type VolunteerFilters = {
   search?: string;
   projectId?: string;
   activeOnly?: boolean;
-  sort?: "completed" | "name";
+  sort?: "workload" | "completed" | "name";
   page?: number;
   limit?: number;
 };

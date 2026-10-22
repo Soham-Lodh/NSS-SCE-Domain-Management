@@ -36,25 +36,67 @@ export function isValidEventWindow(startAt: Date, endAt: Date): boolean {
   return endAt.getTime() > startAt.getTime();
 }
 
+/* ---------------------------------------------------------------
+ * Central user-facing date display contract (DD/MM/YYYY).
+ *
+ * Everywhere in the UI, exports and emails dates render as
+ * `DD/MM/YYYY`, date-times as `DD/MM/YYYY HH:mm` (24-hour clock) in
+ * the organization timezone (default Asia/Kolkata). Storage/transport
+ * remains ISO/UTC instants — never reformat into strings for storage.
+ * --------------------------------------------------------------- */
+
+/** The configured organization display timezone. */
+export const ORGANIZATION_TIMEZONE = "Asia/Kolkata";
+const DISPLAY_LOCALE = "en-GB"; // deterministic dd/mm/yyyy ordering
+
+const DATE_OPTS: Intl.DateTimeFormatOptions = {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+};
+
+const TIME_OPTS: Intl.DateTimeFormatOptions = {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+};
+
+const DATETIME_OPTS: Intl.DateTimeFormatOptions = {
+  ...DATE_OPTS,
+  ...TIME_OPTS,
+};
+
+/** `DD/MM/YYYY` in the organization timezone. Invalid input → "—". */
+export function formatDate(value: Date | string, timeZone: string = ORGANIZATION_TIMEZONE): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...DATE_OPTS, timeZone }).format(date);
+}
+
+/** `DD/MM/YYYY HH:mm` (24-hour) in the organization timezone. */
+export function formatDateTime(value: Date | string, timeZone: string = ORGANIZATION_TIMEZONE): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "—";
+  const datePart = new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...DATE_OPTS, timeZone }).format(date);
+  // en-GB formats a combined date-time with a comma; compose explicitly.
+  const timePart = new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...TIME_OPTS, timeZone }).format(date);
+  return `${datePart} ${timePart}`;
+}
+
 /**
  * Formats a UTC instant in the organization timezone. Returns a stable,
  * locale-pinned string so server and client render identically.
+ * Default matches the org-wide contract: DD/MM/YYYY HH:mm (24h).
  */
 export function formatInTimeZone(
   value: Date | string,
   timeZone: string,
-  options: Intl.DateTimeFormatOptions = {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  },
+  options: Intl.DateTimeFormatOptions = DATETIME_OPTS,
 ): string {
   const date = typeof value === "string" ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-IN", { ...options, timeZone }).format(date);
+  if (options === DATETIME_OPTS) return formatDateTime(date, timeZone);
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...options, timeZone }).format(date);
 }
 
 export function formatDateTimeRange(
@@ -62,7 +104,7 @@ export function formatDateTimeRange(
   endAt: Date | string,
   timeZone: string,
 ): string {
-  return `${formatInTimeZone(startAt, timeZone)} — ${formatInTimeZone(endAt, timeZone)}`;
+  return `${formatDateTime(startAt, timeZone)} — ${formatDateTime(endAt, timeZone)}`;
 }
 
 export const CATEGORY_LABELS: Record<DerivedEventCategory, string> = {

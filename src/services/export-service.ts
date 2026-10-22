@@ -3,7 +3,7 @@ import "server-only";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/db/prisma";
 import { notFound } from "@/lib/api/response";
-import { deriveEventCategory, type DerivedEventCategory } from "@/lib/utils/datetime";
+import { deriveEventCategory, formatDateTime, type DerivedEventCategory } from "@/lib/utils/datetime";
 
 export type ExportFile = { filename: string; buffer: Buffer };
 
@@ -81,11 +81,11 @@ export async function buildAssignmentsCsv(domainId: string): Promise<CsvDataset>
         m.project?.name ?? "",
         a.event.title,
         a.event.location ?? "",
-        a.event.startAt.toISOString(),
-        a.event.endAt.toISOString(),
+        formatDateTime(a.event.startAt),
+        formatDateTime(a.event.endAt),
         categoryOf(a.event.startAt, a.event.endAt, a.event.status, now),
         a.status,
-        a.completedAt?.toISOString() ?? "",
+        a.completedAt ? formatDateTime(a.completedAt) : "",
       ]);
     }
   }
@@ -118,8 +118,8 @@ export async function buildDomainReportCsv(domainId: string): Promise<CsvDataset
   const rows = events.map((e) => [
     e.title,
     e.location ?? "",
-    e.startAt.toISOString(),
-    e.endAt.toISOString(),
+    e.startAt ? formatDateTime(e.startAt) : "",
+    e.endAt ? formatDateTime(e.endAt) : "",
     categoryOf(e.startAt, e.endAt, e.status, now),
     e.status,
     e.assignments.length,
@@ -200,7 +200,7 @@ export async function buildVolunteerEventsExport(domainId: string): Promise<Expo
   ];
   styleHeader(report.getRow(1));
   report.addRow({ metric: "Domain", value: domain.name });
-  report.addRow({ metric: "Generated", value: now.toISOString() });
+  report.addRow({ metric: "Generated", value: formatDateTime(now) });
   const allAssignments = memberships.flatMap((m) => m.assignments);
   report.addRow({ metric: "Total volunteers", value: memberships.length });
   report.addRow({ metric: "Active volunteers", value: memberships.filter((m) => m.isActive).length });
@@ -270,11 +270,11 @@ export async function buildVolunteerEventsExport(domainId: string): Promise<Expo
         project: m.project?.name ?? "",
         event: a.event.title,
         location: a.event.location ?? "",
-        start: a.event.startAt.toISOString(),
-        end: a.event.endAt.toISOString(),
+        start: formatDateTime(a.event.startAt),
+        end: formatDateTime(a.event.endAt),
         category: categoryOf(a.event.startAt, a.event.endAt, a.event.status, now),
         assignment: a.status,
-        completedAt: a.completedAt?.toISOString() ?? "",
+        completedAt: a.completedAt ? formatDateTime(a.completedAt) : "",
       });
     }
   }
@@ -326,8 +326,8 @@ export async function buildDomainReport(domainId: string): Promise<ExportFile> {
     return {
       title: e.title,
       location: e.location ?? "",
-      start: e.startAt.toISOString(),
-      end: e.endAt.toISOString(),
+      start: formatDateTime(e.startAt),
+      end: formatDateTime(e.endAt),
       category,
       status: e.status,
       assigned: e.assignments.length,
@@ -346,7 +346,7 @@ export async function buildDomainReport(domainId: string): Promise<ExportFile> {
   ];
   styleHeader(report.getRow(1));
   report.addRow({ metric: "Domain", value: domain.name });
-  report.addRow({ metric: "Generated", value: now.toISOString() });
+  report.addRow({ metric: "Generated", value: formatDateTime(now) });
   report.addRow({ metric: "Total events", value: events.length });
   report.addRow({ metric: "Upcoming events", value: counts.upcoming });
   report.addRow({ metric: "Ongoing events", value: counts.ongoing });

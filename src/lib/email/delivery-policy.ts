@@ -1,4 +1,3 @@
-
 /**
  * Pure delivery policy for the transactional email outbox.
  *
@@ -8,7 +7,11 @@
  *   - suppress→ mark DEAD, never deliver (audit records the reason)
  *
  * Business rules enforced here:
- * - Assignment notices go out only once the event's start date & time arrived.
+ * - Assignment confirmation (EVENT_ASSIGNED) is delivered IMMEDIATELY —
+ *   regardless of whether the event's start date/time is in the future.
+ * - Start notices (EVENT_STARTED) are a SEPARATE email: deferred until the
+ *   live event startAt is reached (minute-level via the existing outbox
+ *   cadence), suppressed for removed/completed assignments or closed events.
  * - Deadline reminders (4 days / 24 hours / 1 hour) go out only inside their
  *   window before the deadline, only while the event is still SCHEDULED and
  *   only to members whose assignment is still active.
@@ -32,6 +35,7 @@ export type EmailTemplateKey =
   | "ROLE_ASSIGNED"
   | "DOMAIN_LEAD_ASSIGNED"
   | "EVENT_ASSIGNED"
+  | "EVENT_STARTED"
   | "ASSIGNMENT_REMOVED"
   | "EVENT_REMINDER_4D"
   | "EVENT_REMINDER_24H"
@@ -73,16 +77,39 @@ export function decideDelivery(ctx: DeliveryContext): DeliveryDecision {
   if (event === null) return suppress("The event no longer exists.");
 
 
-  // ---- Assignment notice: delivered immediately after the assignment commits. ----
+  // ---- Assignment confirmation: delivered immediately after the assignment
+  // commits — even when the event start date & time is still in the future. ----
   if (template === "EVENT_ASSIGNED") {
     if (assignment === null) return suppress("The assignment no longer exists.");
     if (assignment !== undefined && assignment.removedAt !== null) {
-      // A removed assignment may still have a pending ASSIGNMENT_REMOVED
-      // notice, but the assignment notice itself is dead at this point.
       return suppress("The member was removed from the event before delivery.");
     }
     if (event !== undefined) {
       if (event.status !== "SCHEDULED") return suppress(statusReason(event.status));
+    }
+    return { action: "send" };
+  }
+
+  // ---- Start-time notice: separate email at/after the live event startAt. ----
+  if (template === "EVENT_STARTED") {
+    if (event === undefined) return suppress("The start notice has no verifiable event reference.");
+    if (event.status !== "SCHEDULED") return suppress(statusReason(event.status));
+    if (assignment === null) return suppress("The assignment no longer exists.");
+    if (assignment !== undefined && assignment.removedAt !== null) {
+      return suppress("The member was removed from the event before delivery.");
+    }
+    if (assignment !== undefined && assignment.status !== "ASSIGNED") {
+      return suppress("The assignment was completed before delivery.");
+    }
+    if (now.getTime() < event.startAt.getTime()) {
+      return {
+        action: "defer",
+        nextAttemptAt: event.startAt,
+        reason: "Waiting for the event's scheduled start time.",
+      };
+    }
+    if (now.getTime() >= event.endAt.getTime()) {
+      return suppress("The event window already passed before delivery.");
     }
     return { action: "send" };
   }
@@ -114,7 +141,9 @@ export function decideDelivery(ctx: DeliveryContext): DeliveryDecision {
   }
 
   // ---- Completion notice: event status is irrelevant (this email reports it),
-  // but a member removed after enqueueing must not receive it. ----
+  // but a member removed after enqueueing must not receive it.
+  // NOTE: new task flows never enqueue EVENT_COMPLETED (no completion emails);
+  // this branch only governs legacy rows. ----
   if (template === "EVENT_COMPLETED") {
     if (assignment === null) return suppress("The assignment no longer exists.");
     if (assignment !== undefined && assignment.removedAt !== null) {
@@ -123,7 +152,9 @@ export function decideDelivery(ctx: DeliveryContext): DeliveryDecision {
     return { action: "send" };
   }
 
-  // ---- Removal notice: must reach the member even if the event closed later. ----
+  // ---- Removal notice: must reach the member even if the event closed later.
+  // NOTE: new task flows never enqueue ASSIGNMENT_REMOVED (no removal emails);
+  // this branch only governs legacy rows. ----
   if (template === "ASSIGNMENT_REMOVED") {
     if (assignment === null) return suppress("The assignment no longer exists.");
     return { action: "send" };

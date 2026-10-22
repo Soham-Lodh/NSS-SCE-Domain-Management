@@ -28,6 +28,7 @@ import {
   useVolunteers,
 } from "@/hooks/api-hooks";
 import { ApiClientError } from "@/lib/http/client";
+import { formatDateTime } from "@/lib/utils/datetime";
 import type { AssignmentDTO, BulkAssignSummaryDTO, EventDetailDTO } from "@/lib/types/api";
 
 export default function EventDetailPage() {
@@ -46,7 +47,7 @@ export default function EventDetailPage() {
     <div className="space-y-4">
       <PageHeader
         title={event?.title ?? "Event"}
-        subtitle={event ? `${event.domain.name} · ${new Date(event.startAt).toLocaleString()}` : undefined}
+        subtitle={event ? `${event.domain.name} · ${formatDateTime(event.startAt)}` : undefined}
         action={
           <div className="flex gap-2">
             {canOperate && event && (
@@ -145,9 +146,8 @@ function EventMeta({ event }: { event: EventDetailDTO }) {
           }
         />
       </MetaRow>
-      <MetaRow label="Deadline">{new Date(event.endAt).toLocaleString()}</MetaRow>
-      <MetaRow label="Starts">{new Date(event.startAt).toLocaleString()}</MetaRow>
-      <MetaRow label="Ends">{new Date(event.endAt).toLocaleString()}</MetaRow>
+      <MetaRow label="Starts">{formatDateTime(event.startAt)}</MetaRow>
+      <MetaRow label="Ends (deadline)">{formatDateTime(event.endAt)}</MetaRow>
       <MetaRow label="Location">{event.location ?? "—"}</MetaRow>
       <MetaRow label="Created by">{event.createdBy.person.fullName}</MetaRow>
       {event.description && (
@@ -272,21 +272,16 @@ function ReassignModal({ assignmentId, currentEventId, domainId, onClose }: { as
       </div>
     </Modal>
   );
-}
-
-function BulkAssignModal({ open, onClose, eventId, domainId }: { open: boolean; onClose: () => void; eventId: string; domainId: string }) {
-  const members = useVolunteers({ domainId, activeOnly: true, limit: 100 });
-  const assign = useBulkAssign(eventId);
+}function BulkAssignModal({ open, onClose, eventId, domainId }: { open: boolean; onClose: () => void; eventId: string; domainId: string }) {
   const [search, setSearch] = useState("");
+  // Server-side least-loaded-first ordering (Total asc → Assigned asc → roll no
+  // → name). Search is passed through so pagination never loses members.
+  const members = useVolunteers({ domainId, search, activeOnly: true, sort: "workload", limit: 100 });
+  const assign = useBulkAssign(eventId);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<BulkAssignSummaryDTO | null>(null);
 
-  const filtered = (members.data?.items ?? []).filter(
-    (m) =>
-      !search ||
-      m.fullName.toLowerCase().includes(search.toLowerCase()) ||
-      (m.rollNumber ?? "").toLowerCase().includes(search.toLowerCase()),
-  );
+  const list = members.data?.items ?? [];
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -325,6 +320,9 @@ function BulkAssignModal({ open, onClose, eventId, domainId }: { open: boolean; 
         <Field label="Search members">
           <Input placeholder="Name or roll number" value={search} onChange={(e) => setSearch(e.target.value)} />
         </Field>
+        <p className="text-[11px] text-[color:var(--navy-45)]">
+          Members with fewer total events appear first.
+        </p>
 
         {members.isLoading ? (
           <div className="space-y-2">
@@ -332,27 +330,60 @@ function BulkAssignModal({ open, onClose, eventId, domainId }: { open: boolean; 
               <Skeleton key={i} className="h-9" />
             ))}
           </div>
-        ) : filtered.length === 0 ? (
-          <EmptyState title="No active members" description="Add volunteers to this domain first." />
+        ) : list.length === 0 ? (
+          <EmptyState
+            title={search ? "No matching members" : "No active members"}
+            description={search ? "Try a different name or roll number." : "Add volunteers to this domain first."}
+          />
         ) : (
-          <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
-            {filtered.map((m) => (
-              <label
-                key={m.membershipId}
-                className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-[color:var(--navy-06)]"
-              >
-                <span>
-                  <span className="text-sm font-medium text-[color:var(--brand-navy)]">{m.fullName}</span>
-                  <span className="ml-2 text-[11px] text-[color:var(--navy-45)]">{m.rollNumber ?? ""}</span>
-                </span>
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-[color:var(--brand-navy)]"
-                  checked={selected.has(m.membershipId)}
-                  onChange={() => toggle(m.membershipId)}
-                />
-              </label>
-            ))}
+          <div className="min-w-max max-h-80 overflow-auto rounded-lg border border-[color:var(--navy-06)]">
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 bg-[color:var(--navy-04)] text-[11px] uppercase tracking-wide text-[color:var(--navy-45)]">
+                <tr>
+                  <Th className="px-3 py-2">Roll No.</Th>
+                  <Th className="px-3 py-2">Name</Th>
+                  <Th className="px-3 py-2 text-right" title="Currently open assignments">Assigned</Th>
+                  <Th className="px-3 py-2 text-right">Completed</Th>
+                  <Th className="px-3 py-2 text-right" title="Assigned + Completed (cancelled/archived events excluded)">Total</Th>
+                  <Th className="px-3 py-2 text-center">Select</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((m) => (
+                  <tr
+                    key={m.membershipId}
+                    className="cursor-pointer border-t border-[color:var(--navy-06)] hover:bg-[color:var(--navy-04)]"
+                    onClick={() => toggle(m.membershipId)}
+                  >
+                    <Td className="px-3 py-2 whitespace-nowrap text-[color:var(--navy-70)]">{m.rollNumber ?? "—"}</Td>
+                    <Td className="px-3 py-2 font-medium text-[color:var(--brand-navy)]">{m.fullName}</Td>
+                    <Td className="px-3 py-2 text-right">{m.assignedCount}</Td>
+                    <Td className="px-3 py-2 text-right">{m.completedCount}</Td>
+                    <Td className="px-3 py-2 text-right font-semibold text-[color:var(--brand-navy)]">{m.totalCount}</Td>
+                    <Td className="px-3 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${m.fullName}`}
+                        className="h-4 w-4 accent-[color:var(--brand-navy)]"
+                        checked={selected.has(m.membershipId)}
+                        onChange={() => toggle(m.membershipId)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {members.isError && (
+          <div className="space-y-1 text-xs">
+            <p className="font-medium text-[color:var(--brand-red)]">
+              Could not load members.
+            </p>
+            <Button variant="secondary" className="px-3 py-1 text-xs" onClick={() => members.refetch()}>
+              Retry
+            </Button>
           </div>
         )}
 

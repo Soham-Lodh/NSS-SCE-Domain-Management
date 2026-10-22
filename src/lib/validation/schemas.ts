@@ -92,7 +92,7 @@ export const volunteerListQuery = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
-  sort: z.enum(["completed", "name"]).default("completed"),
+  sort: z.enum(["workload", "completed", "name"]).default("completed"),
 });
 
 export const auditListQuery = z.object({

@@ -16,6 +16,7 @@ import {
   Th,
 } from "@/components/ui/primitives";
 import { useAuditLogs, useMe } from "@/hooks/api-hooks";
+import { formatDateTime } from "@/lib/utils/datetime";
 import type { AuditRowDTO } from "@/lib/types/api";
 
 function useDebounced<T>(value: T, delay = 350): T {
@@ -128,7 +129,7 @@ function AuditRow({ row }: { row: AuditRowDTO }) {
   const tone = row.outcome === "SUCCESS" ? "success" : row.outcome === "DENIED" ? "danger" : "neutral";
   return (
     <tr>
-      <Td>{new Date(row.createdAt).toLocaleString()}</Td>
+      <Td>{formatDateTime(row.createdAt)}</Td>
       <Td>{row.actor ? row.actor.fullName : <span className="text-[color:var(--navy-45)]">system</span>}</Td>
       <Td><span className="font-medium text-[color:var(--brand-navy)]">{row.action}</span></Td>
       <Td>

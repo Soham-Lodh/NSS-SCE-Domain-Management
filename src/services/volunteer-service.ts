@@ -21,6 +21,7 @@ export type VolunteerRow = {
   completedCount: number;
   assignedCount: number;
   upcomingCount: number;
+  totalCount: number;
 };
 
 type RawRow = {
@@ -34,57 +35,86 @@ type RawRow = {
   completedCount: bigint;
   assignedCount: bigint;
   upcomingCount: bigint;
+  totalCount: bigint;
   total: bigint;
 };
 
 /**
- * Member list for ONE domain, sorted by completed-event count desc with a
- * stable tie-breaker (name asc, then id asc).
+ * Member list for ONE domain.
  *
- * Implemented as ONE grouped SQL query with COUNT(*) OVER() for the total — no
- * per-member query (avoids the N+1 bottleneck entirely).
+ * Workload counting (one grouped SQL query — no N+1):
+ *   countable population = non-removed assignments on events that are NOT
+ *   cancelled/archived (cancelled/archived events are not workload). Applied
+ *   identically to all three counts, so Total = Assigned + Completed.
+ *   Assigned = status ASSIGNED; Completed = status COMPLETED.
+ *
+ * Default ordering is server-side and stability-safe across pages:
+ *   sort="workload"  → least-loaded first: Total asc, Assigned asc,
+ *                      roll number asc (nulls last), name asc, id asc
+ *   sort="completed" → completed desc, name asc, id asc (member list page)
+ *   sort="name"      → name asc, id asc
  */
 export async function listVolunteers(args: {
   domainId: string;
   search?: string;
   projectId?: string;
   activeOnly: boolean;
+  sort?: "workload" | "completed" | "name";
   page: number;
   limit: number;
 }): Promise<Paginated<VolunteerRow>> {
-  const { domainId, search = "", projectId, activeOnly, page, limit } = args;
+  const { domainId, search = "", projectId, activeOnly, sort = "completed", page, limit } = args;
   const offset = (page - 1) * limit;
   const like = `%${search}%`;
 
   const rows = await prisma.$queryRaw<RawRow[]>`
+    WITH members AS (
+      SELECT
+        vm.id                         AS "membershipId",
+        p.id                          AS "personId",
+        p."fullName"                  AS "fullName",
+        p."emailNormalized"           AS "emailNormalized",
+        p."rollNumberNormalized"      AS "rollNumberNormalized",
+        pr.name                       AS "projectName",
+        vm.is_active                  AS "isActive",
+        COALESCE(SUM(CASE WHEN ea.status = 'COMPLETED' AND (e.id IS NULL OR (e.status <> 'CANCELLED' AND e.status <> 'ARCHIVED')) THEN 1 ELSE 0 END), 0) AS "completedCount",
+        COALESCE(SUM(CASE WHEN ea.status = 'ASSIGNED' AND (e.id IS NULL OR (e.status <> 'CANCELLED' AND e.status <> 'ARCHIVED')) THEN 1 ELSE 0 END), 0) AS "assignedCount",
+        COALESCE(SUM(CASE WHEN ea.status = 'ASSIGNED' AND e.status <> 'CANCELLED' AND e.end_at > now() THEN 1 ELSE 0 END), 0) AS "upcomingCount",
+        COALESCE(SUM(CASE WHEN ea.id IS NOT NULL AND (e.id IS NULL OR (e.status <> 'CANCELLED' AND e.status <> 'ARCHIVED')) THEN 1 ELSE 0 END), 0) AS "totalCount",
+        COUNT(*) OVER()               AS total
+      FROM volunteer_membership vm
+      JOIN person p ON p.id = vm.person_id
+      LEFT JOIN project pr ON pr.id = vm.project_id
+      LEFT JOIN event_assignment ea ON ea.volunteer_membership_id = vm.id AND ea.removed_at IS NULL
+      LEFT JOIN event e ON e.id = ea.event_id
+      WHERE vm.domain_id = ${domainId}::uuid
+        AND vm.is_active = ${activeOnly}
+        AND (${projectId ?? null}::uuid IS NULL OR vm.project_id = ${projectId ?? null}::uuid)
+        AND (
+          ${search} = ''
+          OR p."fullName" ILIKE ${like}
+          OR p."rollNumberNormalized" ILIKE ${like}
+          OR p."emailNormalized" ILIKE ${like}
+        )
+      GROUP BY vm.id, p.id, p."fullName", p."emailNormalized", p."rollNumberNormalized", pr.name, vm.is_active
+    )
     SELECT
-      vm.id                         AS "membershipId",
-      p.id                          AS "personId",
-      p."fullName"                  AS "fullName",
-      p."emailNormalized"           AS "emailNormalized",
-      p."rollNumberNormalized"      AS "rollNumberNormalized",
-      pr.name                       AS "projectName",
-      vm.is_active                  AS "isActive",
-      COALESCE(SUM(CASE WHEN ea.status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS "completedCount",
-      COALESCE(COUNT(ea.id), 0)     AS "assignedCount",
-      COALESCE(SUM(CASE WHEN ea.status = 'ASSIGNED' AND e.status <> 'CANCELLED' AND e.end_at > now() THEN 1 ELSE 0 END), 0) AS "upcomingCount",
-      COUNT(*) OVER()               AS total
-    FROM volunteer_membership vm
-    JOIN person p ON p.id = vm.person_id
-    LEFT JOIN project pr ON pr.id = vm.project_id
-    LEFT JOIN event_assignment ea ON ea.volunteer_membership_id = vm.id AND ea.removed_at IS NULL
-    LEFT JOIN event e ON e.id = ea.event_id
-    WHERE vm.domain_id = ${domainId}::uuid
-      AND vm.is_active = ${activeOnly}
-      AND (${projectId ?? null}::uuid IS NULL OR vm.project_id = ${projectId ?? null}::uuid)
-      AND (
-        ${search} = ''
-        OR p."fullName" ILIKE ${like}
-        OR p."rollNumberNormalized" ILIKE ${like}
-        OR p."emailNormalized" ILIKE ${like}
-      )
-    GROUP BY vm.id, p.id, p."fullName", p."emailNormalized", p."rollNumberNormalized", pr.name, vm.is_active
-    ORDER BY "completedCount" DESC, p."fullName" ASC, vm.id ASC
+      "membershipId", "personId", "fullName", "emailNormalized", "rollNumberNormalized",
+      "projectName", "isActive", "completedCount", "assignedCount", "upcomingCount", "totalCount", total
+    FROM members m
+    ORDER BY
+      -- workload: least-loaded first (Total asc, then Assigned asc)
+      CASE WHEN ${sort} = 'workload' THEN m."totalCount" ELSE NULL END ASC NULLS LAST,
+      CASE WHEN ${sort} = 'workload' THEN m."assignedCount" ELSE NULL END ASC NULLS LAST,
+      -- completed: most completed first (member list page default)
+      CASE WHEN ${sort} = 'completed' THEN m."completedCount" ELSE NULL END DESC NULLS LAST,
+      -- name: alphabetical
+      CASE WHEN ${sort} = 'name' THEN m."fullName" ELSE NULL END ASC NULLS LAST,
+      -- stable deterministic tail ordering shared by every sort
+      (m."rollNumberNormalized" IS NULL) ASC NULLS LAST,
+      m."rollNumberNormalized" ASC NULLS LAST,
+      m."fullName" ASC,
+      m."membershipId" ASC
     LIMIT ${limit} OFFSET ${offset}
   `;
 
@@ -99,6 +129,7 @@ export async function listVolunteers(args: {
     completedCount: Number(r.completedCount),
     assignedCount: Number(r.assignedCount),
     upcomingCount: Number(r.upcomingCount),
+    totalCount: Number(r.totalCount),
   }));
 
   const total = rows.length > 0 ? Number(rows[0].total) : 0;

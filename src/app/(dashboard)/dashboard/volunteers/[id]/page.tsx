@@ -8,6 +8,7 @@ import { DataPanel } from "@/components/dashboard/data-panel";
 import { Badge, Button, Field, Input, Modal, Select, StatusPill, TableShell, Td, Th } from "@/components/ui/primitives";
 import { useMe, useProjects, useUpdateVolunteer, useVolunteerDetail } from "@/hooks/api-hooks";
 import { ApiClientError } from "@/lib/http/client";
+import { formatDate } from "@/lib/utils/datetime";
 import type { AssignmentDTO } from "@/lib/types/api";
 
 function categorize(a: AssignmentDTO): "COMPLETED" | "UPCOMING" | "ONGOING" | "PAST" | "CANCELLED" {
@@ -122,8 +123,7 @@ export default function VolunteerDetailPage() {
                       )}
                     </Td>
                     <Td>
-                      {a.event
-                        ? `${new Date(a.event.startAt).toLocaleDateString()} – ${new Date(a.event.endAt).toLocaleDateString()}`
+                      {a.event                         ? `${formatDate(a.event.startAt)} – ${formatDate(a.event.endAt)}`
                         : "—"}
                     </Td>
                     <Td>

@@ -4,7 +4,9 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { notFound, validationError } from "@/lib/api/response";
 import { writeAudit } from "@/lib/audit/write-audit";
-import { enqueueEmail } from "@/lib/email/outbox";
+import { suppressOutboxFor } from "@/lib/email/outbox";
+import { withBusinessTx, lockingTx, type LockingTx } from "@/lib/db/tx";
+import { queueDueRemindersForReactivatedAssignment } from "@/services/reminder-service";
 import type { CreateEventInput } from "@/lib/validation/schemas";
 import type { Paginated } from "@/lib/utils/pagination";
 import type { DerivedEventCategory } from "@/lib/utils/datetime";
@@ -244,64 +246,88 @@ export async function updateEvent(args: {
 }): Promise<void> {
   const { domainId, eventId, actorAppUserId, requestId, data } = args;
 
-  await prisma.$transaction(async (tx) => {
-    const existing = await tx.event.findFirst({ where: { id: eventId, domainId } });
-    if (!existing) throw notFound("Event not found.");
+  // Lock order: the event row first; the time/status change and the decision
+  // to suppress pending mail are serialized against assignment mutations.
+  await withBusinessTx(
+    prisma,
+    async (rawTx) => {
+      const tx: LockingTx = lockingTx(rawTx);
+      await tx.lockEvent(eventId);
 
-    const startAt = data.startAt ?? existing.startAt;
-    const endAt = data.endAt ?? existing.endAt;
-    if (endAt.getTime() <= startAt.getTime()) {
-      throw validationError({ endAt: "End time must be after start time." });
-    }
+      const existing = await tx.event.findFirst({ where: { id: eventId, domainId } });
+      if (!existing) throw notFound("Event not found.");
 
-    const before = {
-      title: existing.title,
-      startAt: existing.startAt.toISOString(),
-      endAt: existing.endAt.toISOString(),
-      location: existing.location,
-      status: existing.status,
-    };
+      const startAt = data.startAt ?? existing.startAt;
+      const endAt = data.endAt ?? existing.endAt;
+      if (endAt.getTime() <= startAt.getTime()) {
+        throw validationError({ endAt: "End time must be after start time." });
+      }
 
-    await tx.event.update({
-      where: { id: eventId },
-      data: {
-        ...(data.title !== undefined ? { title: data.title } : {}),
-        ...(data.description !== undefined ? { description: data.description } : {}),
-        ...(data.location !== undefined ? { location: data.location } : {}),
-        ...(data.startAt !== undefined ? { startAt: data.startAt } : {}),
-        ...(data.endAt !== undefined ? { endAt: data.endAt } : {}),
-        ...(data.status !== undefined ? { status: data.status } : {}),
-      },
-    });
+      const before = {
+        title: existing.title,
+        startAt: existing.startAt.toISOString(),
+        endAt: existing.endAt.toISOString(),
+        location: existing.location,
+        status: existing.status,
+      };
 
-    const after = {
-      title: data.title ?? existing.title,
-      startAt: (data.startAt ?? existing.startAt).toISOString(),
-      endAt: (data.endAt ?? existing.endAt).toISOString(),
-      location: data.location !== undefined ? data.location : existing.location,
-      status: data.status ?? existing.status,
-    };
+      await tx.event.update({
+        where: { id: eventId },
+        data: {
+          ...(data.title !== undefined ? { title: data.title } : {}),
+          ...(data.description !== undefined ? { description: data.description } : {}),
+          ...(data.location !== undefined ? { location: data.location } : {}),
+          ...(data.startAt !== undefined ? { startAt: data.startAt } : {}),
+          ...(data.endAt !== undefined ? { endAt: data.endAt } : {}),
+          ...(data.status !== undefined ? { status: data.status } : {}),
+        },
+      });
 
-    await writeAudit(tx, {
-      actorAppUserId,
-      action:
-        data.status === "CANCELLED"
-          ? "EVENT_CANCELLED"
-          : "EVENT_UPDATED",
-      targetType: "Event",
-      targetId: eventId,
-      domainId,
-      requestId,
-      before,
-      after,
-    });
-  });
+      const after = {
+        title: data.title ?? existing.title,
+        startAt: (data.startAt ?? existing.startAt).toISOString(),
+        endAt: (data.endAt ?? existing.endAt).toISOString(),
+        location: data.location !== undefined ? data.location : existing.location,
+        status: data.status ?? existing.status,
+      };
+
+      await writeAudit(tx, {
+        actorAppUserId,
+        action:
+          data.status === "CANCELLED"
+            ? "EVENT_CANCELLED"
+            : "EVENT_UPDATED",
+        targetType: "Event",
+        targetId: eventId,
+        domainId,
+        requestId,
+        before,
+        after,
+      });
+
+      // A cancelled/archived event means no more mail for its members: every
+      // still-pending assignment/start/reminder message is dead here.
+      if (data.status === "CANCELLED" || data.status === "ARCHIVED") {
+        await suppressOutboxFor(tx, {
+          eventId,
+          reason: `The event was ${data.status.toLowerCase()} by a lead.`,
+        });
+      }
+      // A rescheduled event defers its queued start notices automatically:
+      // the delivery policy re-reads the LIVE startAt at delivery time.
+    },
+    { requestId, action: "updateEvent" },
+  );
 }
 
 /**
  * Ends an event (task) explicitly. Only a domain lead may do this, and only in
  * their own domain (enforced by the route guard). Reaching the deadline never
  * ends a task automatically.
+ *
+ * By product rule NO completion email is sent. In the SAME transaction every
+ * still-pending (queued) assignment/start/reminder message for the event is
+ * suppressed — nothing slips out after the lead ends the task.
  */
 export async function completeEvent(args: {
   domainId: string;
@@ -310,87 +336,76 @@ export async function completeEvent(args: {
   requestId: string;
 }): Promise<void> {
   const { domainId, eventId, actorAppUserId, requestId } = args;
-  await prisma.$transaction(async (tx) => {
-    const event = await tx.event.findFirst({ where: { id: eventId, domainId } });
-    if (!event) throw notFound("Event not found.");
-    if (event.status === "COMPLETED") return; // idempotent
-    if (event.status !== "SCHEDULED") {
-      throw validationError({ eventId: "Only a scheduled event can be completed." });
-    }
+  await withBusinessTx(
+    prisma,
+    async (rawTx) => {
+      const tx: LockingTx = lockingTx(rawTx);
+      await tx.lockEvent(eventId);
 
-    const now = new Date();
-    const openAssignments = await tx.eventAssignment.findMany({
-      where: { eventId, removedAt: null, status: "ASSIGNED" },
-      select: { id: true },
-    });
+      const event = await tx.event.findFirst({ where: { id: eventId, domainId } });
+      if (!event) throw notFound("Event not found.");
+      if (event.status === "COMPLETED") return; // idempotent
+      if (event.status !== "SCHEDULED") {
+        throw validationError({ eventId: "Only a scheduled event can be completed." });
+      }
 
-    await tx.event.update({
-      where: { id: eventId },
-      data: { status: "COMPLETED", endedAt: now },
-    });
-
-    if (openAssignments.length > 0) {
-      await tx.eventAssignment.updateMany({
-        where: { id: { in: openAssignments.map((a) => a.id) } },
-        data: { status: "COMPLETED", completedAt: now },
+      const now = new Date();
+      const openAssignments = await tx.eventAssignment.findMany({
+        where: { eventId, removedAt: null, status: "ASSIGNED" },
+        select: { id: true },
       });
-      await tx.assignmentHistory.createMany({
-        data: openAssignments.map((a) => ({
-          assignmentId: a.id,
-          actorAppUserId,
-          action: "COMPLETED" as const,
-          fromEventId: eventId,
-          toEventId: eventId,
-          fromStatus: "ASSIGNED" as const,
-          toStatus: "COMPLETED" as const,
-          requestId,
-        })),
-      });
-    }
+      // Lock order: assignment rows before mutating them.
+      await tx.lockAssignments(openAssignments.map((a) => a.id));
 
-    await writeAudit(tx, {
-      actorAppUserId,
-      action: "EVENT_COMPLETED",
-      targetType: "Event",
-      targetId: eventId,
-      domainId,
-      requestId,
-      before: { status: event.status },
-      after: { status: "COMPLETED", completedAssignments: openAssignments.length },
-    });
-
-    // Notify assigned volunteers (post-commit delivery via the outbox).
-    const assigned = await tx.eventAssignment.findMany({
-      where: { eventId, removedAt: null },
-      select: { id: true, membership: { select: { person: { select: { fullName: true, emailNormalized: true } } } } },
-    });
-    const endedBy = await tx.appUser.findUnique({
-      where: { id: actorAppUserId },
-      select: { person: { select: { fullName: true } } },
-    });
-    for (const a of assigned) {
-      await enqueueEmail(tx, {
-        eventType: "EVENT_COMPLETED",
-        templateKey: "EVENT_COMPLETED",
-        recipient: a.membership.person.emailNormalized,
-        payload: {
-          fullName: a.membership.person.fullName,
-          event: event.title,
-          deadline: event.endAt.toISOString(),
-          endedBy: endedBy?.person.fullName ?? "A domain lead",
-          eventId,
-          assignmentId: a.id,
-          domainId,
-        },
-        idempotencyKey: `event-completed:${eventId}:${a.id}`,
+      await tx.event.update({
+        where: { id: eventId },
+        data: { status: "COMPLETED", endedAt: now },
       });
-    }
-  });
+
+      if (openAssignments.length > 0) {
+        await tx.eventAssignment.updateMany({
+          where: { id: { in: openAssignments.map((a) => a.id) } },
+          data: { status: "COMPLETED", completedAt: now },
+        });
+        await tx.assignmentHistory.createMany({
+          data: openAssignments.map((a) => ({
+            assignmentId: a.id,
+            actorAppUserId,
+            action: "COMPLETED" as const,
+            fromEventId: eventId,
+            toEventId: eventId,
+            fromStatus: "ASSIGNED" as const,
+            toStatus: "COMPLETED" as const,
+            requestId,
+          })),
+        });
+      }
+
+      await writeAudit(tx, {
+        actorAppUserId,
+        action: "EVENT_COMPLETED",
+        targetType: "Event",
+        targetId: eventId,
+        domainId,
+        requestId,
+        before: { status: event.status },
+        after: { status: "COMPLETED", completedAssignments: openAssignments.length },
+      });
+
+      await suppressOutboxFor(tx, {
+        eventId,
+        reason: "The event was ended by a lead before delivery.",
+      });
+    },
+    { requestId, action: "completeEvent" },
+  );
 }
 
 /**
  * Re-opens an event that was ended by mistake: COMPLETED → SCHEDULED. Only a
- * domain lead, in their own domain.
+ * domain lead, in their own domain. Members' assignments are reopened and the
+ * reminder pipeline becomes active again: currently-due stages are enqueued
+ * per assignment (idempotent keys), later stages fire from the normal scan.
  */
 export async function reopenEvent(args: {
   domainId: string;
@@ -399,49 +414,81 @@ export async function reopenEvent(args: {
   requestId: string;
 }): Promise<void> {
   const { domainId, eventId, actorAppUserId, requestId } = args;
-  await prisma.$transaction(async (tx) => {
-    const event = await tx.event.findFirst({ where: { id: eventId, domainId } });
-    if (!event) throw notFound("Event not found.");
-    if (event.status !== "COMPLETED") return;
+  await withBusinessTx(
+    prisma,
+    async (rawTx) => {
+      const tx: LockingTx = lockingTx(rawTx);
+      await tx.lockEvent(eventId);
 
-    const completedAssignments = await tx.eventAssignment.findMany({
-      where: { eventId, removedAt: null, status: "COMPLETED" },
-      select: { id: true },
-    });
+      const event = await tx.event.findFirst({ where: { id: eventId, domainId } });
+      if (!event) throw notFound("Event not found.");
+      if (event.status !== "COMPLETED") return;
 
-    await tx.event.update({
-      where: { id: eventId },
-      data: { status: "SCHEDULED", endedAt: null },
-    });
-
-    if (completedAssignments.length > 0) {
-      await tx.eventAssignment.updateMany({
-        where: { id: { in: completedAssignments.map((a) => a.id) } },
-        data: { status: "ASSIGNED", completedAt: null },
+      const completedAssignments = await tx.eventAssignment.findMany({
+        where: { eventId, removedAt: null, status: "COMPLETED" },
+        select: {
+          id: true,
+          membership: { select: { person: { select: { fullName: true, emailNormalized: true } } } },
+        },
       });
-      await tx.assignmentHistory.createMany({
-        data: completedAssignments.map((a) => ({
-          assignmentId: a.id,
-          actorAppUserId,
-          action: "REOPENED" as const,
-          fromEventId: eventId,
-          toEventId: eventId,
-          fromStatus: "COMPLETED" as const,
-          toStatus: "ASSIGNED" as const,
-          requestId,
-        })),
-      });
-    }
+      await tx.lockAssignments(completedAssignments.map((a) => a.id));
 
-    await writeAudit(tx, {
-      actorAppUserId,
-      action: "EVENT_REOPENED",
-      targetType: "Event",
-      targetId: eventId,
-      domainId,
-      requestId,
-      before: { status: "COMPLETED" },
-      after: { status: "SCHEDULED", reopenedAssignments: completedAssignments.length },
-    });
-  });
+      await tx.event.update({
+        where: { id: eventId },
+        data: { status: "SCHEDULED", endedAt: null },
+      });
+
+      if (completedAssignments.length > 0) {
+        await tx.eventAssignment.updateMany({
+          where: { id: { in: completedAssignments.map((a) => a.id) } },
+          data: { status: "ASSIGNED", completedAt: null },
+        });
+        await tx.assignmentHistory.createMany({
+          data: completedAssignments.map((a) => ({
+            assignmentId: a.id,
+            actorAppUserId,
+            action: "REOPENED" as const,
+            fromEventId: eventId,
+            toEventId: eventId,
+            fromStatus: "COMPLETED" as const,
+            toStatus: "ASSIGNED" as const,
+            requestId,
+          })),
+        });
+      }
+
+      await writeAudit(tx, {
+        actorAppUserId,
+        action: "EVENT_REOPENED",
+        targetType: "Event",
+        targetId: eventId,
+        domainId,
+        requestId,
+        before: { status: "COMPLETED" },
+        after: { status: "SCHEDULED", reopenedAssignments: completedAssignments.length },
+      });
+
+      // No confirmation flood for a reopened task: only reminder stages that
+      // are currently due are enqueued per member (idempotent keys).
+      const eventFresh = await tx.event.findUnique({
+        where: { id: eventId },
+        select: {
+          id: true, title: true, description: true, location: true,
+          startAt: true, endAt: true, domainId: true,
+          domain: { select: { name: true } },
+        },
+      });
+      if (eventFresh) {
+        for (const a of completedAssignments) {
+          await queueDueRemindersForReactivatedAssignment(
+            tx,
+            eventFresh,
+            a.id,
+            a.membership.person,
+          );
+        }
+      }
+    },
+    { requestId, action: "reopenEvent" },
+  );
 }

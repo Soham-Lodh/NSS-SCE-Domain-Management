@@ -20,7 +20,6 @@ const NAV: NavItem[] = [
   { href: "/dashboard/users", label: "Users & Roles", icon: "◉", roles: ["TECH_TEAM", "COORDINATOR"] },
   { href: "/dashboard/email-logs", label: "Email Logs", icon: "✉", roles: ["TECH_TEAM", "COORDINATOR"] },
   { href: "/dashboard/audit-logs", label: "Audit Logs", icon: "☰", roles: ["TECH_TEAM", "COORDINATOR"] },
-  { href: "/dashboard/settings", label: "Settings", icon: "⚙", roles: "ALL" },
 ];
 
 export function AppShell({

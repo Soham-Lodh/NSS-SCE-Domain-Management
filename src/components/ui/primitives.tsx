@@ -301,10 +301,11 @@ export function TableShell({ children, className }: { children: ReactNode; class
   );
 }
 
-export function Th({ children, className }: { children?: ReactNode; className?: string }) {
+export function Th({ children, className, title }: { children?: ReactNode; className?: string; title?: string }) {
   return (
     <th
       scope="col"
+      title={title}
       className={cn(
         "border-b border-[color:var(--navy-10)] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[color:var(--navy-45)]",
         className,

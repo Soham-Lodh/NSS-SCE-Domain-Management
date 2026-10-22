@@ -59,6 +59,7 @@ enum AuditOutcome {
 
 enum OutboxStatus {
   PENDING
+  PROCESSING // claimed by an outbox worker under a time-limited lease
   SENT
   FAILED
   DEAD
@@ -342,6 +343,7 @@ model EmailDeliveryLog {
   @@index([status, createdAt])
   @@index([domainId, createdAt])
   @@index([eventId])
+  @@index([outboxId, status])
   @@map("email_delivery_log")
 }
 
@@ -357,9 +359,18 @@ model EmailOutbox {
   sentAt            DateTime?    @map("sent_at")
   lastErrorSummary  String?      @map("last_error_summary")
   idempotencyKey    String?      @unique @map("idempotency_key")
+  // Business references allow atomic suppression when the assignment/event
+  // becomes ineligible (removed / completed / cancelled) before delivery.
+  eventId           String?      @map("event_id") @db.Uuid
+  assignmentId      String?      @map("assignment_id") @db.Uuid
+  // Lease bookkeeping: a PROCESSING row must be re-claimable once this passes.
+  claimedAt         DateTime?    @map("claimed_at")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
   @@index([status, nextAttemptAt])
+  @@index([assignmentId, status])
+  @@index([eventId, status])
+  @@index([claimedAt])
   @@map("email_outbox")
 }

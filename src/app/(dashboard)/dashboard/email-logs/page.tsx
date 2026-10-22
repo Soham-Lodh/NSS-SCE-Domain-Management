@@ -15,6 +15,7 @@ import {
   Th,
 } from "@/components/ui/primitives";
 import { useEmailDeliveryLogs, useMe } from "@/hooks/api-hooks";
+import { formatDateTime } from "@/lib/utils/datetime";
 import type { EmailDeliveryLogRowDTO } from "@/lib/types/api";
 
 function useDebounced<T>(value: T, delay = 350): T {
@@ -134,7 +135,7 @@ export default function EmailLogsPage() {
                 {r.domainName ? ` · ${r.domainName}` : ""}
               </p>
               <p className="mt-0.5 text-[11px] text-[color:var(--navy-45)]">
-                {new Date(r.createdAt).toLocaleString()} · attempt {r.attemptNumber}
+                {formatDateTime(r.createdAt)} · attempt {r.attemptNumber}
               </p>
               {r.reason && <p className="mt-1 break-words text-[11px] text-[color:var(--brand-red)]">{r.reason}</p>}
             </div>
@@ -157,7 +158,7 @@ export default function EmailLogsPage() {
             <tbody>
               {query.data?.items.map((r) => (
                 <tr key={r.id} className="hover:bg-[color:var(--navy-06)]">
-                  <Td>{new Date(r.createdAt).toLocaleString()}</Td>
+                  <Td>{formatDateTime(r.createdAt)}</Td>
                   <Td><span className="font-medium">{r.recipient}</span></Td>
                   <Td><span className="font-mono text-[11px]">{r.templateKey}</span></Td>
                   <Td>

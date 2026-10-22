@@ -1,5 +1,6 @@
 import "server-only";
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { enqueueEmail } from "@/lib/email/outbox";
 import { writeAudit } from "@/lib/audit/write-audit";
@@ -38,9 +39,12 @@ export type ReminderRunResult = {
  * (status=ASSIGNED, removedAt=null) assignment.
  *
  * Idempotency: a unique outbox idempotency key (`reminder-<stage>:<eventId>:
- * <assignmentId>`) is the single per-person/stage guarantee, PLUS event-level
- * `reminder*SentAt` stamps that stop re-scanning. Reaching the deadline does
- * NOT end the event — only a domain lead can.
+ * <assignmentId>`) is the single per-person/stage guarantee. Event-level
+ * `reminder*SentAt` stamps remain ONLY as scan optimizations (they stop
+ * re-scanning an event whose CURRENT members were already queued); the
+ * reactivation helper restores per-member coverage when somebody is (re)added
+ * after such a stamp. Reaching the deadline does NOT end the event — only a
+ * domain lead can.
  */
 export async function runDeadlineReminders(now: Date = new Date()): Promise<ReminderRunResult> {
   const fourDayEnd = new Date(now.getTime() + FOUR_DAYS);
@@ -190,6 +194,65 @@ function stageField(stage: string, at: Date) {
   if (stage === "4d") return { reminder4dSentAt: at };
   if (stage === "24h") return { reminder24hSentAt: at };
   return { reminder1hSentAt: at };
+}
+
+/**
+ * When an assignment is (re)activated while an event-level reminder stamp is
+ * ALREADY set, the reminder scan would skip that event entirely and the new
+ * member would silently miss the due stage(s). This helper is called inside
+ * the same business transaction as the (re)activation and enqueues every
+ * reminder stage that is currently due for THIS assignment — the per-membership
+ * outbox idempotency key (`reminder-<stage>:<event>:<assignment>`) guarantees
+ * each stage is still delivered at most once, so keys that already exist no-op.
+ * Stages whose window is closed under the missed-stage tolerance are skipped.
+ */
+export async function queueDueRemindersForReactivatedAssignment(
+  tx: Prisma.TransactionClient,
+  event: {
+    id: string;
+    title: string;
+    description: string | null;
+    location: string | null;
+    startAt: Date;
+    endAt: Date;
+    domainId: string;
+    domain: { name: string } | null;
+  },
+  assignmentId: string,
+  person: { fullName: string; emailNormalized: string },
+): Promise<void> {
+  const now = Date.now();
+  for (const [stage, windowMs, typeName] of [
+    ["4d", FOUR_DAYS, "EVENT_REMINDER_4D"],
+    ["24h", ONE_DAY, "EVENT_REMINDER_24H"],
+    ["1h", ONE_HOUR, "EVENT_REMINDER_1H"],
+  ] as const) {
+    const stageDueAt = event.endAt.getTime() - windowMs;
+    if (now < stageDueAt) continue; // window not open yet — scan will queue it
+    if (now >= event.endAt.getTime()) continue; // deadline passed
+    if (now - stageDueAt > STAGE_TOLERANCE_MS[stage]) continue; // stage missed
+    await enqueueEmail(tx, {
+      eventType: typeName,
+      templateKey: typeName,
+      recipient: person.emailNormalized,
+      payload: {
+        fullName: person.fullName,
+        event: event.title,
+        domain: event.domain?.name ?? "",
+        startAt: event.startAt.toISOString(),
+        deadline: event.endAt.toISOString(),
+        ...(stage === "1h"
+          ? { hoursLeft: Math.max(0, Math.round((event.endAt.getTime() - now) / ONE_HOUR)) }
+          : { daysLeft: Math.max(0, Math.round((event.endAt.getTime() - now) / DAY)) }),
+        ...(event.description ? { description: event.description } : {}),
+        ...(event.location ? { location: event.location } : {}),
+        eventId: event.id,
+        assignmentId,
+        domainId: event.domainId,
+      },
+      idempotencyKey: `reminder-${stage}:${event.id}:${assignmentId}`,
+    });
+  }
 }
 
 /**

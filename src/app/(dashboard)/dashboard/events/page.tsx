@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/primitives";
 import { useCreateEvent, useDomains, useEvents, useMe } from "@/hooks/api-hooks";
 import { ApiClientError } from "@/lib/http/client";
+import { formatDateTime } from "@/lib/utils/datetime";
 import type { EventCardDTO } from "@/lib/types/api";
 
 type Tab = "ALL" | "UPCOMING" | "ONGOING" | "PAST" | "COMPLETED" | "CANCELLED";
@@ -129,7 +130,7 @@ export default function EventsPage() {
                 <StatusPill label={e.category} tone={toneFor(e.category)} />
               </div>
               <p className="text-[11px] text-[color:var(--navy-45)]">
-                {new Date(e.startAt).toLocaleString()} → {new Date(e.endAt).toLocaleString()}
+                {formatDateTime(e.startAt)} → {formatDateTime(e.endAt)}
               </p>
               {e.location && <p className="text-[11px] text-[color:var(--navy-70)]">📍 {e.location}</p>}
               <div className="mt-auto flex flex-wrap gap-1">
