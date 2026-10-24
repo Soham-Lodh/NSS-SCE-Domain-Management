@@ -563,6 +563,7 @@ export async function processOutbox(limit = 25): Promise<{ sent: number; failed:
         data: { status: "SENT", sentAt: new Date(), attemptCount: { increment: 1 }, claimedAt: null },
       });
 
+      
       if (applied.count > 0) {
         await prisma.$transaction(async (tx) => {
           await writeAudit(tx, {
