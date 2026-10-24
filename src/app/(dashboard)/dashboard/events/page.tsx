@@ -15,7 +15,7 @@ import {
   StatusPill,
   Tabs,
 } from "@/components/ui/primitives";
-import { useCreateEvent, useDomains, useEvents, useMe } from "@/hooks/api-hooks";
+import { useCreateEvent, useEvents, useMe } from "@/hooks/api-hooks";
 import { ApiClientError } from "@/lib/http/client";
 import { formatDateTime } from "@/lib/utils/datetime";
 import type { EventCardDTO } from "@/lib/types/api";
@@ -32,7 +32,20 @@ function toneFor(cat: EventCardDTO["category"]) {
 
 export default function EventsPage() {
   const me = useMe();
-  const domains = useDomains();
+  const DOMAINS = [
+  {
+    id: "2a05ced4-a265-4569-a975-917c2f536957",
+    name: "Content Writing",
+  },
+  {
+    id: "7fa9baea-ab43-4d87-ba13-06acad9ff50b",
+    name: "Graphic Designing",
+  },
+  {
+    id: "a9975a53-fd65-4ed7-9044-c1d3715af08c",
+    name: "Video Editing",
+  },
+] as const;
   const leadDomainIds = me.data?.domainIds ?? [];
   const isDomainLead = me.data?.roles.includes("DOMAIN_LEAD") ?? false;
   const isOversight = !!me.data && (me.data.roles.includes("TECH_TEAM") || me.data.roles.includes("COORDINATOR"));
@@ -78,7 +91,7 @@ export default function EventsPage() {
           <Field label="Domain">
             <Select value={selectedDomain} onChange={(e) => setSelectedDomain(e.target.value)}>
               <option value="">Select a domain…</option>
-              {domains.data?.map((d) => (
+              {DOMAINS.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
                 </option>

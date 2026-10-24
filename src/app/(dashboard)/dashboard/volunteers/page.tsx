@@ -21,11 +21,9 @@ import {
   exportDomainReport,
   exportVolunteers,
   useCreateVolunteer,
-  useDomains,
   useImportCommit,
   useImportVolunteers,
   useMe,
-  useProjects,
   useVolunteers,
   type CsvDatasetKind,
 } from "@/hooks/api-hooks";
@@ -43,10 +41,64 @@ function useDebounced<T>(value: T, delay = 350): T {
 
 export default function VolunteersPage() {
   const me = useMe();
-  const domains = useDomains();
-  const projects = useProjects();
+  const DOMAINS = [
+    {
+      id: "2a05ced4-a265-4569-a975-917c2f536957",
+      name: "Content Writing",
+    },
+    {
+      id: "7fa9baea-ab43-4d87-ba13-06acad9ff50b",
+      name: "Graphic Designing",
+    },
+    {
+      id: "a9975a53-fd65-4ed7-9044-c1d3715af08c",
+      name: "Video Editing",
+    },
+  ] as const;
+
+  const PROJECTS = [
+    {
+      id: "0ccc654f-e593-4d82-b08c-643f2df2c680",
+      name: "Sparsh",
+    },
+    {
+      id: "3315a308-8c38-4ee2-907f-c481d0246f98",
+      name: "Riddhi",
+    },
+    {
+      id: "4d09933a-876b-4640-aa95-dd50613397ab",
+      name: "Sanyukt",
+    },
+    {
+      id: "5801d54e-be1c-44d3-a34e-b3bf59418502",
+      name: "Nidaan",
+    },
+    {
+      id: "76d4230e-b948-4c46-b931-d93c45299ce7",
+      name: "Dhara",
+    },
+    {
+      id: "c174c4f9-4ab7-4dc6-869b-473720ef5598",
+      name: "Udaan",
+    },
+    {
+      id: "d527d354-71eb-4ba0-bdf4-b82b1721ae17",
+      name: "Bandhutva",
+    },
+    {
+      id: "ef905bc0-c590-418b-81bc-d741b119b4dd",
+      name: "Swet",
+    },
+    {
+      id: "efa30eaa-851d-42d0-bd60-1980ede2ddd6",
+      name: "Urja",
+    },
+  ] as const;
   const leadDomainIds = me.data?.domainIds ?? [];
-  const isOversight = !!me.data && (me.data.roles.includes("TECH_TEAM") || me.data.roles.includes("COORDINATOR"));
+  const isOversight =
+    !!me.data &&
+    (me.data.roles.includes("TECH_TEAM") ||
+      me.data.roles.includes("COORDINATOR"));
   const canManage = isOversight;
 
   const [search, setSearch] = useState("");
@@ -57,7 +109,9 @@ export default function VolunteersPage() {
   const [selectedProject, setSelectedProject] = useState("");
 
   const mustChooseDomain = isOversight || leadDomainIds.length > 1;
-  const effectiveDomainId = mustChooseDomain ? selectedDomain || undefined : leadDomainIds[0];
+  const effectiveDomainId = mustChooseDomain
+    ? selectedDomain || undefined
+    : leadDomainIds[0];
   const canLoad = !!effectiveDomainId;
   const waitingForDomainSelection = mustChooseDomain && !effectiveDomainId;
 
@@ -87,7 +141,9 @@ export default function VolunteersPage() {
       if (kind === "volunteers") await exportVolunteers(effectiveDomainId);
       else await exportDomainReport(effectiveDomainId);
     } catch (err) {
-      setExportError(err instanceof ApiClientError ? err.message : "Export failed.");
+      setExportError(
+        err instanceof ApiClientError ? err.message : "Export failed.",
+      );
     } finally {
       setExporting(null);
     }
@@ -143,7 +199,9 @@ export default function VolunteersPage() {
                 loading={exporting === "members"}
                 disabled={!canLoad}
               >
-                {csvCopied === "members" ? "✓ CSV copied" : "⧉ Copy CSV (members)"}
+                {csvCopied === "members"
+                  ? "✓ CSV copied"
+                  : "⧉ Copy CSV (members)"}
               </Button>
             )}
             {canLoad && (
@@ -153,7 +211,9 @@ export default function VolunteersPage() {
                 loading={exporting === "assignments"}
                 disabled={!canLoad}
               >
-                {csvCopied === "assignments" ? "✓ CSV copied" : "⧉ Copy CSV (assignments)"}
+                {csvCopied === "assignments"
+                  ? "✓ CSV copied"
+                  : "⧉ Copy CSV (assignments)"}
               </Button>
             )}
             {isOversight && canLoad && (
@@ -163,11 +223,17 @@ export default function VolunteersPage() {
                 loading={exporting === "domain-events"}
                 disabled={!canLoad}
               >
-                {csvCopied === "domain-events" ? "✓ CSV copied" : "⧉ Copy CSV (events)"}
+                {csvCopied === "domain-events"
+                  ? "✓ CSV copied"
+                  : "⧉ Copy CSV (events)"}
               </Button>
             )}
             {canManage && (
-              <Button variant="secondary" onClick={() => setImporting(true)} disabled={!canLoad}>
+              <Button
+                variant="secondary"
+                onClick={() => setImporting(true)}
+                disabled={!canLoad}
+              >
                 ⬆ Import Excel
               </Button>
             )}
@@ -181,12 +247,21 @@ export default function VolunteersPage() {
       />
 
       {exportError && (
-        <p role="alert" className="text-xs font-medium text-[color:var(--brand-red)]">
+        <p
+          role="alert"
+          className="text-xs font-medium text-[color:var(--brand-red)]"
+        >
           {exportError}
         </p>
       )}
 
-      <DataPanel title="Filters" isLoading={me.isLoading} isError={false} error={null} isEmpty={false}>
+      <DataPanel
+        title="Filters"
+        isLoading={me.isLoading}
+        isError={false}
+        error={null}
+        isEmpty={false}
+      >
         <div className="grid gap-3 sm:grid-cols-4">
           <Field label="Search">
             <Input
@@ -197,9 +272,12 @@ export default function VolunteersPage() {
           </Field>
           {mustChooseDomain && (
             <Field label="Domain">
-              <Select value={selectedDomain} onChange={(e) => setSelectedDomain(e.target.value)}>
+              <Select
+                value={selectedDomain}
+                onChange={(e) => setSelectedDomain(e.target.value)}
+              >
                 <option value="">Select a domain…</option>
-                {domains.data?.map((d) => (
+                {DOMAINS.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
                   </option>
@@ -208,15 +286,21 @@ export default function VolunteersPage() {
             </Field>
           )}
           <Field label="Status">
-            <Select value={activeOnly ? "true" : "false"} onChange={(e) => setActiveOnly(e.target.value === "true")}>
+            <Select
+              value={activeOnly ? "true" : "false"}
+              onChange={(e) => setActiveOnly(e.target.value === "true")}
+            >
               <option value="true">Active only</option>
               <option value="false">All (incl. inactive)</option>
             </Select>
           </Field>
           <Field label="Project">
-            <Select value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)}>
+            <Select
+              value={selectedProject}
+              onChange={(e) => setSelectedProject(e.target.value)}
+            >
               <option value="">All projects</option>
-              {projects.data?.map((p) => (
+              {PROJECTS.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
@@ -232,8 +316,14 @@ export default function VolunteersPage() {
         isLoading={me.isLoading || (!!effectiveDomainId && query.isLoading)}
         isError={!waitingForDomainSelection && query.isError}
         error={query.error}
-        isEmpty={waitingForDomainSelection || (query.data?.items.length ?? 0) === 0}
-        emptyTitle={waitingForDomainSelection ? "Please select a filter to see details" : "No members found"}
+        isEmpty={
+          waitingForDomainSelection || (query.data?.items.length ?? 0) === 0
+        }
+        emptyTitle={
+          waitingForDomainSelection
+            ? "Please select a filter to see details"
+            : "No members found"
+        }
         emptyDescription={
           waitingForDomainSelection
             ? "Choose a domain in the filter above to see its volunteers."
@@ -257,10 +347,17 @@ export default function VolunteersPage() {
           </thead>
           <tbody>
             {query.data?.items.map((v) => (
-              <tr key={v.membershipId} className="hover:bg-[color:var(--navy-06)]">
+              <tr
+                key={v.membershipId}
+                className="hover:bg-[color:var(--navy-06)]"
+              >
                 <Td>
-                  <span className="font-semibold text-[color:var(--brand-navy)]">{v.fullName}</span>
-                  <span className="block text-[11px] text-[color:var(--navy-45)]">{v.email}</span>
+                  <span className="font-semibold text-[color:var(--brand-navy)]">
+                    {v.fullName}
+                  </span>
+                  <span className="block text-[11px] text-[color:var(--navy-45)]">
+                    {v.email}
+                  </span>
                 </Td>
                 <Td>{v.rollNumber ?? "—"}</Td>
                 <Td>{v.projectName ?? "—"}</Td>
@@ -268,10 +365,16 @@ export default function VolunteersPage() {
                 <Td className="text-right">{v.assignedCount}</Td>
                 <Td className="text-right">{v.upcomingCount}</Td>
                 <Td>
-                  <StatusPill label={v.isActive ? "Active" : "Inactive"} tone={v.isActive ? "success" : "neutral"} />
+                  <StatusPill
+                    label={v.isActive ? "Active" : "Inactive"}
+                    tone={v.isActive ? "success" : "neutral"}
+                  />
                 </Td>
                 <Td>
-                  <Link href={`/dashboard/volunteers/${v.membershipId}`} className="btn btn-secondary px-3 py-1 text-xs">
+                  <Link
+                    href={`/dashboard/volunteers/${v.membershipId}`}
+                    className="btn btn-secondary px-3 py-1 text-xs"
+                  >
                     View more
                   </Link>
                 </Td>
@@ -286,10 +389,18 @@ export default function VolunteersPage() {
               Page {query.data.page} · {query.data.total} total
             </span>
             <div className="flex gap-2">
-              <Button variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              <Button
+                variant="secondary"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => p - 1)}
+              >
                 Previous
               </Button>
-              <Button variant="secondary" disabled={!query.data.hasMore} onClick={() => setPage((p) => p + 1)}>
+              <Button
+                variant="secondary"
+                disabled={!query.data.hasMore}
+                onClick={() => setPage((p) => p + 1)}
+              >
                 Next
               </Button>
             </div>
@@ -301,8 +412,8 @@ export default function VolunteersPage() {
         <CreateVolunteerModal
           open={creating}
           onClose={() => setCreating(false)}
-          domains={domains.data ?? []}
-          projects={projects.data ?? []}
+          domains={DOMAINS.map((d) => ({ id: d.id, name: d.name }))}
+          projects={PROJECTS.map((p) => ({ id: p.id, name: p.name }))}
           defaultDomainId={effectiveDomainId}
         />
       )}
@@ -362,7 +473,12 @@ function CreateVolunteerModal({
           setForm({ ...form, fullName: "", email: "", rollNumber: "" });
           setTimeout(onClose, 700);
         },
-        onError: (err) => setMessage(err instanceof ApiClientError ? err.message : "Could not add volunteer."),
+        onError: (err) =>
+          setMessage(
+            err instanceof ApiClientError
+              ? err.message
+              : "Could not add volunteer.",
+          ),
       },
     );
   }
@@ -380,7 +496,9 @@ function CreateVolunteerModal({
           <Button
             onClick={submit}
             loading={create.isPending}
-            disabled={!form.fullName || !form.email || !form.domainId || !form.projectId}
+            disabled={
+              !form.fullName || !form.email || !form.domainId || !form.projectId
+            }
           >
             Add
           </Button>
@@ -389,16 +507,32 @@ function CreateVolunteerModal({
     >
       <div className="space-y-3">
         <Field label="Full name">
-          <Input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+          <Input
+            value={form.fullName}
+            onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+          />
         </Field>
-        <Field label="Email" hint="Must end with an allowed institutional domain">
-          <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        <Field
+          label="Email"
+          hint="Must end with an allowed institutional domain"
+        >
+          <Input
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+          />
         </Field>
         <Field label="Roll number" hint="Optional">
-          <Input value={form.rollNumber} onChange={(e) => setForm({ ...form, rollNumber: e.target.value })} />
+          <Input
+            value={form.rollNumber}
+            onChange={(e) => setForm({ ...form, rollNumber: e.target.value })}
+          />
         </Field>
         <Field label="Domain">
-          <Select value={form.domainId} onChange={(e) => setForm({ ...form, domainId: e.target.value })}>
+          <Select
+            value={form.domainId}
+            onChange={(e) => setForm({ ...form, domainId: e.target.value })}
+          >
             {domains.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
@@ -407,7 +541,10 @@ function CreateVolunteerModal({
           </Select>
         </Field>
         <Field label="Project">
-          <Select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
+          <Select
+            value={form.projectId}
+            onChange={(e) => setForm({ ...form, projectId: e.target.value })}
+          >
             <option value="">Select a project…</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -416,13 +553,23 @@ function CreateVolunteerModal({
             ))}
           </Select>
         </Field>
-        {message && <p className="text-xs font-medium text-[color:var(--brand-navy)]">{message}</p>}
+        {message && (
+          <p className="text-xs font-medium text-[color:var(--brand-navy)]">
+            {message}
+          </p>
+        )}
       </div>
     </Modal>
   );
 }
 
-function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function ImportModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const preview = useImportVolunteers();
   const commit = useImportCommit();
@@ -444,7 +591,12 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     setResult(null);
     preview.mutate(file, {
       onSuccess: (p) => setData(p),
-      onError: (err) => setError(err instanceof ApiClientError ? err.message : "Could not read the file."),
+      onError: (err) =>
+        setError(
+          err instanceof ApiClientError
+            ? err.message
+            : "Could not read the file.",
+        ),
     });
   }
 
@@ -466,7 +618,10 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
         setResult(`Added ${res.created} volunteer(s). Skipped ${res.skipped}.`);
         setData(null);
       },
-      onError: (err) => setError(err instanceof ApiClientError ? err.message : "Import failed."),
+      onError: (err) =>
+        setError(
+          err instanceof ApiClientError ? err.message : "Import failed.",
+        ),
     });
   }
 
@@ -491,7 +646,11 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
           >
             Close
           </Button>
-          <Button onClick={confirm} loading={commit.isPending} disabled={!data || (s?.valid ?? 0) === 0}>
+          <Button
+            onClick={confirm}
+            loading={commit.isPending}
+            disabled={!data || (s?.valid ?? 0) === 0}
+          >
             Confirm & add {s ? `(${s.valid})` : ""}
           </Button>
         </>
@@ -499,9 +658,13 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     >
       <div className="space-y-3">
         <div className="surface-inset p-3 text-[11px] text-[color:var(--navy-70)]">
-          Expected columns: <strong>Email Address, Name, Roll No, Year, Gender, Domain, Project</strong>.
-          Rows with an email outside the allowed domains, an unknown domain or duplicates are
-          rejected. Nothing is saved until you confirm the preview below.
+          Expected columns:{" "}
+          <strong>
+            Email Address, Name, Roll No, Year, Gender, Domain, Project
+          </strong>
+          . Rows with an email outside the allowed domains, an unknown domain or
+          duplicates are rejected. Nothing is saved until you confirm the
+          preview below.
         </div>
 
         <input
@@ -512,9 +675,21 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
           className="input file:mr-3 file:rounded-lg file:border-0 file:bg-[color:var(--navy-10)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[color:var(--brand-navy)]"
         />
 
-        {preview.isPending && <p className="text-xs text-[color:var(--navy-45)]">Reading spreadsheet…</p>}
-        {error && <p className="text-xs font-medium text-[color:var(--brand-red)]">{error}</p>}
-        {result && <p className="text-xs font-semibold text-[color:var(--brand-navy)]">{result}</p>}
+        {preview.isPending && (
+          <p className="text-xs text-[color:var(--navy-45)]">
+            Reading spreadsheet…
+          </p>
+        )}
+        {error && (
+          <p className="text-xs font-medium text-[color:var(--brand-red)]">
+            {error}
+          </p>
+        )}
+        {result && (
+          <p className="text-xs font-semibold text-[color:var(--brand-navy)]">
+            {result}
+          </p>
+        )}
 
         {s && (
           <div className="flex flex-wrap gap-2">
@@ -553,11 +728,18 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
 }
 
 function PreviewRow({ row }: { row: ImportPreviewRowDTO }) {
-  const tone = row.status === "valid" ? "success" : row.status === "duplicate" ? "accent" : "danger";
+  const tone =
+    row.status === "valid"
+      ? "success"
+      : row.status === "duplicate"
+        ? "accent"
+        : "danger";
   return (
     <tr>
       <Td>
-        <span className="font-mono text-[10px] text-[color:var(--navy-45)]">{row.rowIndex}</span>
+        <span className="font-mono text-[10px] text-[color:var(--navy-45)]">
+          {row.rowIndex}
+        </span>
       </Td>
       <Td>{row.fullName}</Td>
       <Td>{row.email}</Td>
@@ -566,7 +748,11 @@ function PreviewRow({ row }: { row: ImportPreviewRowDTO }) {
       <Td>{row.projectName || "—"}</Td>
       <Td>
         <StatusPill label={row.status} tone={tone} />
-        {row.reason && <span className="block text-[10px] text-[color:var(--navy-45)]">{row.reason}</span>}
+        {row.reason && (
+          <span className="block text-[10px] text-[color:var(--navy-45)]">
+            {row.reason}
+          </span>
+        )}
       </Td>
     </tr>
   );
