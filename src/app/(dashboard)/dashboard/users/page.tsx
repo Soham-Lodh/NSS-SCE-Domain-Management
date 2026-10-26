@@ -48,6 +48,7 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<UserRowDTO | null>(null);
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<UserRowDTO | null>(null);
   const [pendingError, setPendingError] = useState<string | null>(null);
 
   const query = useUsers({ search: debounced || undefined, page, limit: 25 });
@@ -148,7 +149,7 @@ export default function UsersPage() {
                       className="px-3 py-1 text-xs"
                       loading={remove.isPending && remove.variables?.id === u.appUserId}
                       disabled={u.appUserId === me.data?.appUserId || !u.isActive}
-                      onClick={() => revoke(u.appUserId, "user")}
+                      onClick={() => setRemoving(u)}
                     >
                       Remove
                     </Button>
@@ -227,6 +228,34 @@ export default function UsersPage() {
 
       {editing && <RoleModal user={editing} onClose={() => setEditing(null)} />}
       {adding && <AddPersonModal onClose={() => setAdding(false)} />}
+      {removing && (
+        <Modal
+          open
+          onClose={() => setRemoving(null)}
+          title="Remove account?"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setRemoving(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={remove.isPending && remove.variables?.id === removing.appUserId}
+                onClick={() => {
+                  revoke(removing.appUserId, "user");
+                  setRemoving(null);
+                }}
+              >
+                Confirm removal
+              </Button>
+            </>
+          }
+        >
+          <p>
+            This will deactivate <strong>{removing.fullName}</strong> and revoke their active roles. This action is recorded in the audit log.
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }

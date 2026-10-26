@@ -30,6 +30,7 @@ export default function VolunteerDetailPage() {
   const query = useVolunteerDetail(id);
   const detail = query.data;
   const [editing, setEditing] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const canEdit = !!me.data && (me.data.roles.includes("TECH_TEAM") || me.data.roles.includes("COORDINATOR"));
 
   const groups = {
@@ -51,6 +52,11 @@ export default function VolunteerDetailPage() {
             {canEdit && detail && (
               <Button variant="secondary" onClick={() => setEditing(true)}>
                 Edit details
+              </Button>
+            )}
+            {canEdit && detail?.isActive && (
+              <Button variant="danger" onClick={() => setRemoving(true)}>
+                Remove volunteer
               </Button>
             )}
             <Link href="/dashboard/volunteers" className="btn btn-secondary">
@@ -143,7 +149,41 @@ export default function VolunteerDetailPage() {
         </DataPanel>
       </div>
       {editing && detail && <EditVolunteerModal id={id} detail={detail} onClose={() => setEditing(false)} />}
+      {removing && detail && <RemoveVolunteerModal id={id} name={detail.person.fullName} onClose={() => setRemoving(false)} />}
     </div>
+  );
+}
+
+function RemoveVolunteerModal({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
+  const update = useUpdateVolunteer(id);
+  const [message, setMessage] = useState<string | null>(null);
+
+  function submit() {
+    setMessage(null);
+    update.mutate(
+      { isActive: false },
+      {
+        onSuccess: onClose,
+        onError: (err) => setMessage(err instanceof ApiClientError ? err.message : "Could not remove volunteer."),
+      },
+    );
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Remove volunteer?"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="danger" onClick={submit} loading={update.isPending}>Confirm removal</Button>
+        </>
+      }
+    >
+      <p>This will deactivate <strong>{name}</strong> from this domain. The action is recorded in the audit log.</p>
+      {message && <p className="mt-3 text-xs font-medium text-[color:var(--brand-red)]">{message}</p>}
+    </Modal>
   );
 }
 
