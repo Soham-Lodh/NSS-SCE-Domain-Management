@@ -141,7 +141,10 @@ export async function addPerson(args: {
 
 export async function listPendingPeople(): Promise<PendingPerson[]> {
   const rows = await prisma.pendingRoleAssignment.findMany({
-    where: { isConsumed: false },
+    where: {
+      isConsumed: false,
+      role: { in: ["COORDINATOR", "TECH_TEAM", "DOMAIN_LEAD"] },
+    },
     select: {
       id: true,
       fullName: true,

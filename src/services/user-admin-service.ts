@@ -32,17 +32,25 @@ export async function listUsers(args: {
   limit: number;
 }): Promise<Paginated<UserRow>> {
   const { search = "", page, limit } = args;
-  const where: Prisma.AppUserWhereInput = search
-    ? {
-        person: {
-          OR: [
-            { fullName: { contains: search, mode: "insensitive" } },
-            { emailNormalized: { contains: search, mode: "insensitive" } },
-            { rollNumberNormalized: { contains: search, mode: "insensitive" } },
-          ],
-        },
-      }
-    : {};
+  const where: Prisma.AppUserWhereInput = {
+    roleGrants: {
+      some: {
+        isActive: true,
+        role: { in: ["COORDINATOR", "TECH_TEAM", "DOMAIN_LEAD"] },
+      },
+    },
+    ...(search
+      ? {
+          person: {
+            OR: [
+              { fullName: { contains: search, mode: "insensitive" } },
+              { emailNormalized: { contains: search, mode: "insensitive" } },
+              { rollNumberNormalized: { contains: search, mode: "insensitive" } },
+            ],
+          },
+        }
+      : {}),
+  };
 
   const [total, rows] = await prisma.$transaction([
     prisma.appUser.count({ where }),

@@ -79,7 +79,7 @@ export default function UsersPage() {
     <div className="space-y-4">
       <PageHeader
         title="Users & Roles"
-        subtitle="Add a person by name, email and role. Domain leads/volunteers need a domain."
+        subtitle="Manage coordinators, tech team members and domain leads. Volunteers are managed in the volunteer database."
         action={<Button onClick={() => setAdding(true)}>Add person</Button>}
       />
 
@@ -299,7 +299,6 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
         </Field>
         <Field label="Role">
           <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as AppRole })}>
-            <option value="VOLUNTEER">Volunteer</option>
             <option value="DOMAIN_LEAD">Domain Lead</option>
             <option value="TECH_TEAM">Tech Team</option>
             <option value="COORDINATOR">Coordinator</option>
@@ -388,7 +387,6 @@ function RoleModal({ user, onClose }: { user: UserRowDTO; onClose: () => void })
       <div className="space-y-3">
         <Field label="Role">
           <Select value={role} onChange={(e) => setRole(e.target.value as AppRole)}>
-            <option value="VOLUNTEER">Volunteer</option>
             <option value="DOMAIN_LEAD">Domain Lead</option>
             <option value="TECH_TEAM">Tech Team</option>
             <option value="COORDINATOR">Coordinator</option>
