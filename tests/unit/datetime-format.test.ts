@@ -28,9 +28,9 @@ describe("central DD/MM/YYYY display formatters", () => {
     expect(formatDate("2026-01-05T18:29:59Z")).toBe("05/01/2026");
   });
 
-  it("renders invalid dates as an em dash", () => {
-    expect(formatDate("not-a-date")).toBe("—");
-    expect(formatDateTime(new Date("not-a-date"))).toBe("—");
+  it("renders invalid dates as a plain dash placeholder", () => {
+    expect(formatDate("not-a-date")).toBe("-");
+    expect(formatDateTime(new Date("not-a-date"))).toBe("-");
   });
 
   it("month/year boundaries format correctly", () => {

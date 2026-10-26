@@ -45,7 +45,7 @@ export default function VolunteerDetailPage() {
     <div className="space-y-4">
       <PageHeader
         title={detail?.person.fullName ?? "Member"}
-        subtitle={detail ? `${detail.domain.name} · ${detail.person.emailNormalized}` : undefined}
+        subtitle={detail ? `${detail.domain.name} | ${detail.person.emailNormalized}` : undefined}
         action={
           <div className="flex flex-wrap gap-2">
             {canEdit && detail && (
@@ -54,7 +54,7 @@ export default function VolunteerDetailPage() {
               </Button>
             )}
             <Link href="/dashboard/volunteers" className="btn btn-secondary">
-              ← Back
+              Back
             </Link>
           </div>
         }
@@ -72,8 +72,8 @@ export default function VolunteerDetailPage() {
         >
           {detail && (
             <dl className="space-y-2 text-sm">
-              <Row label="Roll number" value={detail.person.rollNumberNormalized ?? "—"} />
-              <Row label="Project" value={detail.project?.name ?? "—"} />
+              <Row label="Roll number" value={detail.person.rollNumberNormalized ?? "-"} />
+              <Row label="Project" value={detail.project?.name ?? "-"} />
               <Row
                 label="Status"
                 value={
@@ -119,12 +119,12 @@ export default function VolunteerDetailPage() {
                           {a.event.title}
                         </Link>
                       ) : (
-                        "—"
+                        "-"
                       )}
                     </Td>
                     <Td>
                       {a.event                         ? `${formatDate(a.event.startAt)} – ${formatDate(a.event.endAt)}`
-                        : "—"}
+                        : "-"}
                     </Td>
                     <Td>
                       <div className="flex flex-wrap gap-1">
@@ -207,7 +207,7 @@ function EditVolunteerModal({
         </Field>
         <Field label="Project">
           <Select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
-            <option value="">Select a project…</option>
+            <option value="">Select a project</option>
             {projects.data?.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}

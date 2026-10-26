@@ -70,7 +70,7 @@ export default function EventsPage() {
         title="Events"
         subtitle="Sorted by date. Past events stay open until a domain lead ends them."
         action={
-          canOperate && <Button onClick={() => setCreating(true)}>+ Create event</Button>
+          canOperate && <Button onClick={() => setCreating(true)}>Create event</Button>
         }
       />
 
@@ -90,7 +90,7 @@ export default function EventsPage() {
         {mustChooseDomain && (
           <Field label="Domain">
             <Select value={selectedDomain} onChange={(e) => setSelectedDomain(e.target.value)}>
-              <option value="">Select a domain…</option>
+              <option value="">Select a domain</option>
               {DOMAINS.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
@@ -105,6 +105,10 @@ export default function EventsPage() {
         title="Event cards"
         subtitle={query.data ? `${query.data.total} event(s)` : undefined}
         isLoading={me.isLoading || (!!effectiveDomainId && query.isLoading)}
+        isRefreshing={
+          !!effectiveDomainId &&
+          (query.isPlaceholderData || (query.isFetching && !query.isLoading))
+        }
         isError={!waitingForDomainSelection && query.isError}
         error={query.error}
         isEmpty={waitingForDomainSelection || (query.data?.items.length ?? 0) === 0}
@@ -143,9 +147,9 @@ export default function EventsPage() {
                 <StatusPill label={e.category} tone={toneFor(e.category)} />
               </div>
               <p className="text-[11px] text-[color:var(--navy-45)]">
-                {formatDateTime(e.startAt)} → {formatDateTime(e.endAt)}
+                {formatDateTime(e.startAt)} to {formatDateTime(e.endAt)}
               </p>
-              {e.location && <p className="text-[11px] text-[color:var(--navy-70)]">📍 {e.location}</p>}
+              {e.location && <p className="text-[11px] text-[color:var(--navy-70)]">{e.location}</p>}
               <div className="mt-auto flex flex-wrap gap-1">
                 <Badge>{e.assignedCount} assigned</Badge>
                 <Badge tone="accent">{e.completedCount} completed</Badge>

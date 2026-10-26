@@ -80,7 +80,7 @@ export default function UsersPage() {
       <PageHeader
         title="Users & Roles"
         subtitle="Add a person by name, email and role. Domain leads/volunteers need a domain."
-        action={<Button onClick={() => setAdding(true)}>+ Add person</Button>}
+        action={<Button onClick={() => setAdding(true)}>Add person</Button>}
       />
 
       {pendingError && (
@@ -99,6 +99,7 @@ export default function UsersPage() {
         title="Accounts"
         subtitle={query.data ? `${query.data.total} account(s)` : undefined}
         isLoading={me.isLoading || query.isLoading}
+        isRefreshing={query.isPlaceholderData || (query.isFetching && !query.isLoading)}
         isError={query.isError}
         error={query.error}
         isEmpty={(query.data?.items.length ?? 0) === 0}
@@ -128,7 +129,7 @@ export default function UsersPage() {
                 <Td>
                   <Badge tone="accent">{u.role}</Badge>
                 </Td>
-                <Td>{u.domainName ?? "—"}</Td>
+                <Td>{u.domainName ?? "-"}</Td>
                 <Td>
                   <StatusPill label={u.isActive ? "Active" : "Inactive"} tone={u.isActive ? "success" : "neutral"} />
                 </Td>
@@ -204,8 +205,8 @@ export default function UsersPage() {
                 <Td>
                   <Badge tone="accent">{p.role}</Badge>
                 </Td>
-                <Td>{p.domainName ?? "—"}</Td>
-                <Td>{p.projectName ?? "—"}</Td>
+                <Td>{p.domainName ?? "-"}</Td>
+                <Td>{p.projectName ?? "-"}</Td>
                 <Td>
                   <div className="flex justify-end">
                     <Button
@@ -264,7 +265,7 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
           setMessage(
             res.mode === "role-applied"
               ? "Role applied to the existing account."
-              : "Invitation saved — the role applies at their first sign-in.",
+              : "Invitation saved. The role applies at their first sign-in.",
           );
           setTimeout(onClose, 900);
         },
@@ -307,7 +308,7 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
         {needsDomain && (
           <Field label="Domain" hint={form.role === "VOLUNTEER" ? "Assigns the volunteer to this domain" : "Required"}>
             <Select value={form.domainId} onChange={(e) => setForm({ ...form, domainId: e.target.value })}>
-              <option value="">Select a domain…</option>
+              <option value="">Select a domain</option>
               {domains.data?.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
@@ -319,7 +320,7 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
         {needsDomain && (
           <Field label="Project" hint="Required">
             <Select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
-              <option value="">Select a project…</option>
+              <option value="">Select a project</option>
               {projects.data?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -368,7 +369,7 @@ function RoleModal({ user, onClose }: { user: UserRowDTO; onClose: () => void })
     <Modal
       open
       onClose={onClose}
-      title={`Change role — ${user.fullName}`}
+      title={`Change role | ${user.fullName}`}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -396,7 +397,7 @@ function RoleModal({ user, onClose }: { user: UserRowDTO; onClose: () => void })
         {(role === "DOMAIN_LEAD" || role === "VOLUNTEER") && (
           <Field label="Domain">
             <Select value={domainId} onChange={(e) => setDomainId(e.target.value)}>
-              <option value="">Select a domain…</option>
+              <option value="">Select a domain</option>
               {domains.data?.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
@@ -408,7 +409,7 @@ function RoleModal({ user, onClose }: { user: UserRowDTO; onClose: () => void })
         {(role === "DOMAIN_LEAD" || role === "VOLUNTEER") && (
           <Field label="Project">
             <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">Select a project…</option>
+              <option value="">Select a project</option>
               {projects.data?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Bricolage_Grotesque, Inter } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/components/providers/query-provider";
+import { serverEnv } from "@/lib/env";
 
 /**
  * Bricolage Grotesque is the site typeface; Inter stays in the stack as a
@@ -16,9 +17,30 @@ const bricolage = Bricolage_Grotesque({
 
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 
+const appUrl = serverEnv().APP_URL;
+
 export const metadata: Metadata = {
-  title: "NSS SCE KIIT — Domain Management",
+  // Canonical origin so social previews / linking resolve against the real host.
+  metadataBase: new URL(appUrl),
+  applicationName: "NSS SCE KIIT Domain Management",
+  title: {
+    default: "NSS SCE KIIT — Domain Management",
+    template: "%s | NSS SCE KIIT",
+  },
   description: "Secure volunteer, event and assignment management for NSS SCE KIIT.",
+  formatDetection: { telephone: false },
+  openGraph: {
+    type: "website",
+    siteName: "NSS SCE KIIT",
+    title: "NSS SCE KIIT — Domain Management",
+    description: "Secure volunteer, event and assignment management for NSS SCE KIIT.",
+    url: appUrl,
+  },
+  twitter: {
+    card: "summary",
+    title: "NSS SCE KIIT — Domain Management",
+    description: "Secure volunteer, event and assignment management for NSS SCE KIIT.",
+  },
   // The approved circular NSS emblem (transparent PNG, JPEG fallback).
   icons: {
     icon: [

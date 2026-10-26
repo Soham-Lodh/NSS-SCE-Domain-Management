@@ -72,7 +72,7 @@ export default function DashboardPage() {
                 <div>
                   <p className="text-sm font-semibold text-[color:var(--brand-navy)]">{d.domainName}</p>
                   <p className="text-[11px] text-[color:var(--navy-45)]">
-                    {d.activeVolunteers} active volunteers · {d.events} events
+                    {d.activeVolunteers} active volunteers | {d.events} events
                   </p>
                 </div>
                 <div className="flex gap-1">
@@ -95,22 +95,22 @@ export default function DashboardPage() {
           <div className="grid gap-2 sm:grid-cols-2">
             {showVolunteers && (
               <Link href="/dashboard/volunteers" className="btn btn-secondary justify-start">
-                ◫ Volunteer database
+                Volunteer database
               </Link>
             )}
             {showVolunteers && (
               <Link href="/dashboard/events" className="btn btn-secondary justify-start">
-                ◨ Events
+                Events
               </Link>
             )}
             {isOversight && (
               <Link href="/dashboard/users" className="btn btn-secondary justify-start">
-                ◉ Users &amp; roles
+                Users &amp; roles
               </Link>
             )}
             {isOversight && (
               <Link href="/dashboard/audit-logs" className="btn btn-secondary justify-start">
-                ☰ Audit logs
+                Audit logs
               </Link>
             )}
           </div>

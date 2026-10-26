@@ -180,7 +180,7 @@ export default function VolunteersPage() {
               loading={exporting === "volunteers"}
               disabled={!canLoad}
             >
-              ⬇ Export (Excel)
+              Export (Excel)
             </Button>
             {isOversight && (
               <Button
@@ -189,7 +189,7 @@ export default function VolunteersPage() {
                 loading={exporting === "report"}
                 disabled={!canLoad}
               >
-                ⬇ Domain report
+                Domain report
               </Button>
             )}
             {canLoad && (
@@ -200,8 +200,8 @@ export default function VolunteersPage() {
                 disabled={!canLoad}
               >
                 {csvCopied === "members"
-                  ? "✓ CSV copied"
-                  : "⧉ Copy CSV (members)"}
+                  ? "CSV copied"
+                  : "Copy CSV (members)"}
               </Button>
             )}
             {canLoad && (
@@ -212,8 +212,8 @@ export default function VolunteersPage() {
                 disabled={!canLoad}
               >
                 {csvCopied === "assignments"
-                  ? "✓ CSV copied"
-                  : "⧉ Copy CSV (assignments)"}
+                  ? "CSV copied"
+                  : "Copy CSV (assignments)"}
               </Button>
             )}
             {isOversight && canLoad && (
@@ -224,8 +224,8 @@ export default function VolunteersPage() {
                 disabled={!canLoad}
               >
                 {csvCopied === "domain-events"
-                  ? "✓ CSV copied"
-                  : "⧉ Copy CSV (events)"}
+                  ? "CSV copied"
+                  : "Copy CSV (events)"}
               </Button>
             )}
             {canManage && (
@@ -234,12 +234,12 @@ export default function VolunteersPage() {
                 onClick={() => setImporting(true)}
                 disabled={!canLoad}
               >
-                ⬆ Import Excel
+                Import Excel
               </Button>
             )}
             {canManage && (
               <Button onClick={() => setCreating(true)} disabled={!canLoad}>
-                + Add volunteer
+                Add volunteer
               </Button>
             )}
           </div>
@@ -276,7 +276,7 @@ export default function VolunteersPage() {
                 value={selectedDomain}
                 onChange={(e) => setSelectedDomain(e.target.value)}
               >
-                <option value="">Select a domain…</option>
+                <option value="">Select a domain</option>
                 {DOMAINS.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
@@ -314,6 +314,10 @@ export default function VolunteersPage() {
         title="Members"
         subtitle={query.data ? `${query.data.total} record(s)` : undefined}
         isLoading={me.isLoading || (!!effectiveDomainId && query.isLoading)}
+        isRefreshing={
+          !!effectiveDomainId &&
+          (query.isPlaceholderData || (query.isFetching && !query.isLoading))
+        }
         isError={!waitingForDomainSelection && query.isError}
         error={query.error}
         isEmpty={
@@ -359,8 +363,8 @@ export default function VolunteersPage() {
                     {v.email}
                   </span>
                 </Td>
-                <Td>{v.rollNumber ?? "—"}</Td>
-                <Td>{v.projectName ?? "—"}</Td>
+                <Td>{v.rollNumber ?? "-"}</Td>
+                <Td>{v.projectName ?? "-"}</Td>
                 <Td className="text-right font-bold">{v.completedCount}</Td>
                 <Td className="text-right">{v.assignedCount}</Td>
                 <Td className="text-right">{v.upcomingCount}</Td>
@@ -386,7 +390,7 @@ export default function VolunteersPage() {
         {query.data && query.data.total > query.data.limit && (
           <div className="mt-4 flex items-center justify-between">
             <span className="text-xs text-[color:var(--navy-45)]">
-              Page {query.data.page} · {query.data.total} total
+              Page {query.data.page} | {query.data.total} total
             </span>
             <div className="flex gap-2">
               <Button
@@ -544,8 +548,7 @@ function CreateVolunteerModal({
           <Select
             value={form.projectId}
             onChange={(e) => setForm({ ...form, projectId: e.target.value })}
-          >
-            <option value="">Select a project…</option>
+          >              <option value="">Select a project</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -677,7 +680,7 @@ function ImportModal({
 
         {preview.isPending && (
           <p className="text-xs text-[color:var(--navy-45)]">
-            Reading spreadsheet…
+            Reading spreadsheet
           </p>
         )}
         {error && (
@@ -743,9 +746,9 @@ function PreviewRow({ row }: { row: ImportPreviewRowDTO }) {
       </Td>
       <Td>{row.fullName}</Td>
       <Td>{row.email}</Td>
-      <Td>{row.rollNumber || "—"}</Td>
-      <Td>{row.domainName || "—"}</Td>
-      <Td>{row.projectName || "—"}</Td>
+      <Td>{row.rollNumber || "-"}</Td>
+      <Td>{row.domainName || "-"}</Td>
+      <Td>{row.projectName || "-"}</Td>
       <Td>
         <StatusPill label={row.status} tone={tone} />
         {row.reason && (

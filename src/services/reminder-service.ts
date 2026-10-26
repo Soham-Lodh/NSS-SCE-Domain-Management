@@ -51,42 +51,52 @@ export async function runDeadlineReminders(now: Date = new Date()): Promise<Remi
   const oneDayEnd = new Date(now.getTime() + ONE_DAY);
   const oneHourEnd = new Date(now.getTime() + ONE_HOUR);
 
-  const baseWhere = {
-    status: "SCHEDULED" as const,
-    endAt: { gt: now },
-    assignments: { some: { removedAt: null, status: "ASSIGNED" as const } },
-  };
+  // SINGLE indexed scan instead of three overlapping ones: the 4-day window is
+  // the widest of the three, so one pass over (status = SCHEDULED, endAt in
+  // (now, now+4d]) with an OR over the un-stamped reminder flags gives every
+  // stage candidate in a single query. Stages are then classified in memory;
+  // the query is served directly by the `events(status, end_at)` index and the
+  // EXISTS on active assignments uses `event_assignments(event_id, status)`.
+  const candidates = await prisma.event.findMany({
+    where: {
+      status: "SCHEDULED" as const,
+      endAt: { gt: now, lte: fourDayEnd },
+      OR: [{ reminder4dSentAt: null }, { reminder24hSentAt: null }, { reminder1hSentAt: null }],
+      assignments: { some: { removedAt: null, status: "ASSIGNED" as const } },
+    },
+    select: { id: true, reminder4dSentAt: true, reminder24hSentAt: true, reminder1hSentAt: true, endAt: true },
+    orderBy: { endAt: "asc" },
+    take: 800,
+  });
 
-  const [fourDayEvents, oneDayEvents, oneHourEvents] = await Promise.all([
-    prisma.event.findMany({
-      where: { ...baseWhere, reminder4dSentAt: null, endAt: { gt: now, lte: fourDayEnd } },
-      select: eventSelect,
-      take: 200,
-    }),
-    prisma.event.findMany({
-      where: { ...baseWhere, reminder24hSentAt: null, endAt: { gt: now, lte: oneDayEnd } },
-      select: eventSelect,
-      take: 200,
-    }),
-    prisma.event.findMany({
-      where: { ...baseWhere, reminder1hSentAt: null, endAt: { gt: now, lte: oneHourEnd } },
-      select: eventSelect,
-      take: 200,
-    }),
-  ]);
+  // Classify per stage in memory (strictly narrower than the fetched window).
+  const fourDayEvents: string[] = [];
+  const oneDayEvents: string[] = [];
+  const oneHourEvents: string[] = [];
+  for (const c of candidates) {
+    if (!c.reminder4dSentAt && c.endAt.getTime() <= fourDayEnd.getTime()) fourDayEvents.push(c.id);
+    if (!c.reminder24hSentAt && c.endAt.getTime() <= oneDayEnd.getTime()) oneDayEvents.push(c.id);
+    if (!c.reminder1hSentAt && c.endAt.getTime() <= oneHourEnd.getTime()) oneHourEvents.push(c.id);
+  }
+
+  // Fetch full event payloads (with active assignments) only for events that
+  // actually reached a stage boundary, in one bounded batch per stage.
+  const [loaded4d, loaded24h, loaded1h] = await Promise.all(
+    [fourDayEvents, oneDayEvents, oneHourEvents].map(loadRemindableEvents),
+  );
 
   let emailsQueued = 0;
   const missedByStage = { "4d": 0, "24h": 0, "1h": 0 };
 
   for (const [stage, events] of [
-    ["4d", fourDayEvents] as const,
-    ["24h", oneDayEvents] as const,
-    ["1h", oneHourEvents] as const,
+    ["4d", loaded4d] as const,
+    ["24h", loaded24h] as const,
+    ["1h", loaded1h] as const,
   ]) {
     const windowMs = stage === "4d" ? FOUR_DAYS : stage === "24h" ? ONE_DAY : ONE_HOUR;
     const tolerance = STAGE_TOLERANCE_MS[stage];
 
-    for (const event of events) {
+    for (const event of events.slice(0, 200)) {
       // Missed-window check: if the deadline is closer than (window - tolerance)
       // and this stage was never queued, the stage cannot retire on time.
       const stageDueAt = event.endAt.getTime() - windowMs;
@@ -276,3 +286,17 @@ const eventSelect = {
     },
   },
 } as const;
+
+type RemindableEvent = Prisma.EventGetPayload<{ select: typeof eventSelect }>;
+
+/** Batch-load full reminder payloads for a bounded list of event ids. */
+function loadRemindableEvents(ids: string[]): Promise<RemindableEvent[]> {
+  return ids.length === 0
+    ? Promise.resolve([])
+    : prisma.event.findMany({
+        where: { id: { in: ids } },
+        select: eventSelect,
+        orderBy: { id: "asc" },
+        take: 200,
+      });
+}

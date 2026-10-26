@@ -18,6 +18,7 @@ export function DataPanel({
   action,
   className,
   isLoading,
+  isRefreshing = false,
   isError,
   error,
   isEmpty,
@@ -33,6 +34,8 @@ export function DataPanel({
   action?: ReactNode;
   className?: string;
   isLoading: boolean;
+  /** True while new results for changed filters/pages are being fetched on top of visible data. */
+  isRefreshing?: boolean;
   isError: boolean;
   error: unknown;
   isEmpty: boolean;
@@ -46,9 +49,9 @@ export function DataPanel({
   const denied = error instanceof ApiClientError && error.code === "FORBIDDEN";
 
   return (
-    <BentoCard className={className}>
+    <BentoCard className={className} aria-busy={(isLoading || isRefreshing) || undefined}>
       <CardHeader title={title} subtitle={subtitle} action={action} />
-      {isLoading ? (
+      {isLoading || isRefreshing ? (
         skeleton ?? <SkeletonRows rows={rowSkeletonCount ?? 5} cols={4} />
       ) : isError ? (
         denied ? (

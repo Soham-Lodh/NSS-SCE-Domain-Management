@@ -209,6 +209,8 @@ model Event {
   @@index([domainId, status, startAt])
   @@index([domainId, endAt])
   @@index([startAt])
+  // Reminder scan: (status = SCHEDULED, endAt range) served in one index pass.
+  @@index([status, endAt])
   @@map("event")
 }
 

@@ -47,7 +47,7 @@ export default function EventDetailPage() {
     <div className="space-y-4">
       <PageHeader
         title={event?.title ?? "Event"}
-        subtitle={event ? `${event.domain.name} · ${formatDateTime(event.startAt)}` : undefined}
+        subtitle={event ? `${event.domain.name} | ${formatDateTime(event.startAt)}` : undefined}
         action={
           <div className="flex gap-2">
             {canOperate && event && (
@@ -56,11 +56,11 @@ export default function EventDetailPage() {
                 loading={lifecycle.isPending}
                 onClick={() => lifecycle.mutate(isEnded ? "reopen" : "complete")}
               >
-                {isEnded ? "↺ Re-open task" : "✓ End task"}
+                {isEnded ? "Re-open task" : "End task"}
               </Button>
             )}
             <Link href="/dashboard/events" className="btn btn-secondary">
-              ← Back
+              Back
             </Link>
           </div>
         }
@@ -148,7 +148,7 @@ function EventMeta({ event }: { event: EventDetailDTO }) {
       </MetaRow>
       <MetaRow label="Starts">{formatDateTime(event.startAt)}</MetaRow>
       <MetaRow label="Ends (deadline)">{formatDateTime(event.endAt)}</MetaRow>
-      <MetaRow label="Location">{event.location ?? "—"}</MetaRow>
+      <MetaRow label="Location">{event.location ?? "-"}</MetaRow>
       <MetaRow label="Created by">{event.createdBy.person.fullName}</MetaRow>
       {event.description && (
         <div className="surface-inset mt-2 p-3 text-xs text-[color:var(--navy-70)]">{event.description}</div>
@@ -195,11 +195,11 @@ function AssignmentRow({
     <tr>
       <Td>
         <span className="font-semibold text-[color:var(--brand-navy)]">
-          {assignment.membership?.person.fullName ?? "—"}
+          {assignment.membership?.person.fullName ?? "-"}
         </span>
         {error && <span className="block text-[11px] text-[color:var(--brand-red)]">{error}</span>}
       </Td>
-      <Td>{assignment.membership?.person.rollNumberNormalized ?? "—"}</Td>
+      <Td>{assignment.membership?.person.rollNumberNormalized ?? "-"}</Td>
       <Td>
         <StatusPill
           label={assignment.status === "COMPLETED" ? "Completed" : "Assigned"}
@@ -355,7 +355,7 @@ function ReassignModal({ assignmentId, currentEventId, domainId, onClose }: { as
                     className="cursor-pointer border-t border-[color:var(--navy-06)] hover:bg-[color:var(--navy-04)]"
                     onClick={() => toggle(m.membershipId)}
                   >
-                    <Td className="px-3 py-2 whitespace-nowrap text-[color:var(--navy-70)]">{m.rollNumber ?? "—"}</Td>
+                    <Td className="px-3 py-2 whitespace-nowrap text-[color:var(--navy-70)]">{m.rollNumber ?? "-"}</Td>
                     <Td className="px-3 py-2 font-medium text-[color:var(--brand-navy)]">{m.fullName}</Td>
                     <Td className="px-3 py-2 text-right">{m.assignedCount}</Td>
                     <Td className="px-3 py-2 text-right">{m.completedCount}</Td>

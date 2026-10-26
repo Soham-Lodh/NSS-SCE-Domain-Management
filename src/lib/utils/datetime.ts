@@ -66,17 +66,17 @@ const DATETIME_OPTS: Intl.DateTimeFormatOptions = {
   ...TIME_OPTS,
 };
 
-/** `DD/MM/YYYY` in the organization timezone. Invalid input → "—". */
+/** `DD/MM/YYYY` in the organization timezone. Invalid input renders as "-". */
 export function formatDate(value: Date | string, timeZone: string = ORGANIZATION_TIMEZONE): string {
   const date = typeof value === "string" ? new Date(value) : value;
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "-";
   return new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...DATE_OPTS, timeZone }).format(date);
 }
 
 /** `DD/MM/YYYY HH:mm` (24-hour) in the organization timezone. */
 export function formatDateTime(value: Date | string, timeZone: string = ORGANIZATION_TIMEZONE): string {
   const date = typeof value === "string" ? new Date(value) : value;
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "-";
   const datePart = new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...DATE_OPTS, timeZone }).format(date);
   // en-GB formats a combined date-time with a comma; compose explicitly.
   const timePart = new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...TIME_OPTS, timeZone }).format(date);
@@ -94,7 +94,7 @@ export function formatInTimeZone(
   options: Intl.DateTimeFormatOptions = DATETIME_OPTS,
 ): string {
   const date = typeof value === "string" ? new Date(value) : value;
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "-";
   if (options === DATETIME_OPTS) return formatDateTime(date, timeZone);
   return new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...options, timeZone }).format(date);
 }

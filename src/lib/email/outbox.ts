@@ -78,7 +78,7 @@ const SUBJECTS: Record<EmailTemplateKey, string> = {
   EVENT_REMINDER_1H: "Reminder: an assigned task is due in 1 hour",
   EVENT_COMPLETED: "An event you were assigned to was completed",
   ACCOUNT_DEACTIVATED: "Your NSS SCE KIIT account was deactivated",
-  MONTHLY_DIGEST: "Your tasks for this month — NSS SCE KIIT",
+  MONTHLY_DIGEST: "Your open tasks this month (NSS SCE KIIT)",
 };
 
 /** Shared wrapper for all email templates — matches the NSS SCE KIIT brand. */
@@ -103,7 +103,7 @@ function emailShell(subject: string, bodyHtml: string, bodyText: string): { html
 </table>
 </td></tr></table>
 </body></html>`;
-  return { html, text: `${subject}\n\n${bodyText}\n\n— NSS SCE KIIT` };
+  return { html, text: `${subject}\n\n${bodyText}\n\nNSS SCE KIIT` };
 }
 
 function labelFor(key: string): string {
@@ -176,7 +176,7 @@ function renderBody(template: EmailTemplateKey, payload: Record<string, unknown>
       messageText = `Dear ${fullName},\n\nYou have been assigned to an event. Details below:`;
       break;
     case "EVENT_STARTED":
-      messageHtml = `${greeting}<p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.6">The scheduled <strong>start time</strong> for your assigned task has arrived — please begin working now.</p>`;
+      messageHtml = `${greeting}<p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.6">The scheduled <strong>start time</strong> for your assigned task has arrived. Please begin working now.</p>`;
       messageText = `Dear ${fullName},\n\nThe scheduled start time for your assigned task has arrived. Please begin working now.`;
       break;
     case "EVENT_REMINDER_4D":
@@ -188,7 +188,7 @@ function renderBody(template: EmailTemplateKey, payload: Record<string, unknown>
       messageText = `Dear ${fullName},\n\nUrgent reminder: an assigned task is due in 24 hours.`;
       break;
     case "EVENT_REMINDER_1H":
-      messageHtml = `${greeting}<p style="margin:0 0 4px;color:#374151;font-size:15px;line-height:1.6">⚠️ <strong>Final reminder:</strong> an assigned task is due in <strong>1 hour</strong>!</p><p style="margin:0 0 16px;color:#DC2626;font-size:14px;font-weight:600">Please conclude your activities and submit any required work immediately.</p>`;
+      messageHtml = `${greeting}<p style="margin:0 0 4px;color:#374151;font-size:15px;line-height:1.6"><strong>Final reminder:</strong> an assigned task is due in <strong>1 hour</strong>.</p><p style="margin:0 0 16px;color:#DC2626;font-size:14px;font-weight:600">Please conclude your activities and submit any required work immediately.</p>`;
       messageText = `Dear ${fullName},\n\nFINAL REMINDER: an assigned task is due in 1 hour!`;
       break;
     case "EVENT_COMPLETED":
@@ -223,7 +223,7 @@ function renderBody(template: EmailTemplateKey, payload: Record<string, unknown>
         const title = typeof t.event === "string" ? t.event : "Untitled task";
         const domain = typeof t.domain === "string" ? ` (${t.domain})` : "";
         const deadline = typeof t.deadline === "string" ? ` — due ${formatValue("deadline", t.deadline)}` : "";
-        return `• ${title}${domain}${deadline}`;
+        return `- ${title}${domain}${deadline}`;
       }).join("\n");
       messageHtml = `${greeting}<p style="margin:0 0 8px;color:#374151;font-size:15px;line-height:1.6">You have <strong>${tasks.length}</strong> open task${tasks.length === 1 ? "" : "s"} expected of you this month:</p><ul style="margin:0 0 16px;padding-left:20px">${taskItemHtml}</ul><p style="margin:0;color:#6B7280;font-size:13px">Reach out to your domain lead if anything above is unclear.</p>`;
       messageText = `Dear ${fullName},\n\nYou have ${tasks.length} open task(s) expected of you this month:\n\n${taskItemText}\n\nReach out to your domain lead if anything above is unclear.`;

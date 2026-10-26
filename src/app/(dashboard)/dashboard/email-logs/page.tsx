@@ -85,15 +85,9 @@ export default function EmailLogsPage() {
             <Select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)}>
               <option value="">All types</option>
               <option value="EVENT_ASSIGNED">Task assigned</option>
-              <option value="EVENT_REMINDER_4D">Reminder — 4 days</option>
-              <option value="EVENT_REMINDER_24H">Reminder — 24 hours</option>
-              <option value="EVENT_REMINDER_1H">Reminder — 1 hour</option>
-              <option value="MONTHLY_DIGEST">Monthly digest</option>
-              <option value="ASSIGNMENT_REMOVED">Removed from event</option>
-              <option value="EVENT_COMPLETED">Event completed</option>
-              <option value="ROLE_ASSIGNED">Role assigned</option>
-              <option value="DOMAIN_LEAD_ASSIGNED">Domain lead assigned</option>
-              <option value="ACCOUNT_DEACTIVATED">Account deactivated</option>
+              <option value="EVENT_REMINDER_4D">Reminder (4 days before deadline)</option>
+              <option value="EVENT_REMINDER_24H">Reminder (24 hours before)</option>
+              <option value="EVENT_REMINDER_1H">Reminder (1 hour before)</option>
             </Select>
           </Field>
           <Field label="Status">
@@ -113,6 +107,7 @@ export default function EmailLogsPage() {
         title="Deliveries"
         subtitle={query.data ? `${query.data.total} record(s)` : undefined}
         isLoading={me.isLoading || query.isLoading}
+        isRefreshing={query.isPlaceholderData || (query.isFetching && !query.isLoading)}
         isError={query.isError}
         error={query.error}
         isEmpty={(query.data?.items.length ?? 0) === 0}
@@ -131,11 +126,11 @@ export default function EmailLogsPage() {
               </div>
               <p className="mt-1 text-[11px] text-[color:var(--navy-70)]">
                 {r.templateKey}
-                {r.eventTitle ? ` · ${r.eventTitle}` : ""}
-                {r.domainName ? ` · ${r.domainName}` : ""}
+                {r.eventTitle ? ` | ${r.eventTitle}` : ""}
+                {r.domainName ? ` | ${r.domainName}` : ""}
               </p>
               <p className="mt-0.5 text-[11px] text-[color:var(--navy-45)]">
-                {formatDateTime(r.createdAt)} · attempt {r.attemptNumber}
+                {formatDateTime(r.createdAt)} | attempt {r.attemptNumber}
               </p>
               {r.reason && <p className="mt-1 break-words text-[11px] text-[color:var(--brand-red)]">{r.reason}</p>}
             </div>
@@ -162,14 +157,14 @@ export default function EmailLogsPage() {
                   <Td><span className="font-medium">{r.recipient}</span></Td>
                   <Td><span className="font-mono text-[11px]">{r.templateKey}</span></Td>
                   <Td>
-                    {r.eventTitle ?? "—"}
+                    {r.eventTitle ?? "-"}
                     {r.domainName && (
                       <span className="block text-[11px] text-[color:var(--navy-45)]">{r.domainName}</span>
                     )}
                   </Td>
                   <Td><StatusPill label={r.status} tone={STATUS_TONE[r.status] ?? "neutral"} /></Td>
                   <Td className="text-right">{r.attemptNumber}</Td>
-                  <Td><span className="text-[11px]">{r.reason ?? "—"}</span></Td>
+                  <Td><span className="text-[11px]">{r.reason ?? "-"}</span></Td>
                 </tr>
               ))}
             </tbody>

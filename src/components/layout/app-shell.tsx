@@ -10,16 +10,16 @@ import { cn } from "@/lib/utils/cn";
 import type { AppRole } from "@/lib/auth/types";
 import { ROLE_LABELS } from "@/lib/auth/types";
 
-type NavItem = { href: string; label: string; icon: string; roles: AppRole[] | "ALL" };
+type NavItem = { href: string; label: string; roles: AppRole[] | "ALL" };
 
 const NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "▦", roles: "ALL" },
-  { href: "/dashboard/volunteers", label: "Volunteers", icon: "◫", roles: ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"] },
-  { href: "/dashboard/events", label: "Events", icon: "◨", roles: ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"] },
-  { href: "/dashboard/domains", label: "Domains", icon: "◧", roles: ["TECH_TEAM", "COORDINATOR"] },
-  { href: "/dashboard/users", label: "Users & Roles", icon: "◉", roles: ["TECH_TEAM", "COORDINATOR"] },
-  { href: "/dashboard/email-logs", label: "Email Logs", icon: "✉", roles: ["TECH_TEAM", "COORDINATOR"] },
-  { href: "/dashboard/audit-logs", label: "Audit Logs", icon: "☰", roles: ["TECH_TEAM", "COORDINATOR"] },
+  { href: "/dashboard", label: "Dashboard", roles: "ALL" },
+  { href: "/dashboard/volunteers", label: "Volunteers", roles: ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"] },
+  { href: "/dashboard/events", label: "Events", roles: ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"] },
+  { href: "/dashboard/domains", label: "Domains", roles: ["TECH_TEAM", "COORDINATOR"] },
+  { href: "/dashboard/users", label: "Users & Roles", roles: ["TECH_TEAM", "COORDINATOR"] },
+  { href: "/dashboard/email-logs", label: "Email Logs", roles: ["TECH_TEAM", "COORDINATOR"] },
+  { href: "/dashboard/audit-logs", label: "Audit Logs", roles: ["TECH_TEAM", "COORDINATOR"] },
 ];
 
 export function AppShell({
@@ -95,7 +95,6 @@ export function AppShell({
             extraClass,
           )}
         >
-          <span aria-hidden className="w-4 text-center">{item.icon}</span>
           {item.label}
         </Link>
       );
@@ -133,7 +132,7 @@ export function AppShell({
           onClick={() => setDrawerOpen((v) => !v)}
           className="flex h-11 w-11 items-center justify-center rounded-xl text-[color:var(--brand-navy)] hover:bg-[color:var(--navy-06)]"
         >
-          <span aria-hidden className="text-lg">{drawerOpen ? "✕" : "☰"}</span>
+          <span className="text-xs font-semibold">{drawerOpen ? "Close" : "Menu"}</span>
         </button>
       </header>
 

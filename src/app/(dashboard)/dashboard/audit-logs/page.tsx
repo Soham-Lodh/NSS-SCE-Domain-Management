@@ -82,6 +82,7 @@ export default function AuditLogsPage() {
         title="Events"
         subtitle={query.data ? `${query.data.total} record(s)` : undefined}
         isLoading={me.isLoading || query.isLoading}
+        isRefreshing={query.isPlaceholderData || (query.isFetching && !query.isLoading)}
         isError={query.isError}
         error={query.error}
         isEmpty={(query.data?.items.length ?? 0) === 0}
@@ -139,11 +140,11 @@ function AuditRow({ row }: { row: AuditRowDTO }) {
             {row.targetId ? `#${row.targetId.slice(0, 8)}` : ""}
           </Badge>
         ) : (
-          "—"
+          "-"
         )}
       </Td>
       <Td><StatusPill label={row.outcome} tone={tone} /></Td>
-      <Td><span className="font-mono text-[10px] text-[color:var(--navy-45)]">{row.requestId?.slice(0, 8) ?? "—"}</span></Td>
+      <Td><span className="font-mono text-[10px] text-[color:var(--navy-45)]">{row.requestId?.slice(0, 8) ?? "-"}</span></Td>
     </tr>
   );
 }

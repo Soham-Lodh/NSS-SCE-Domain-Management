@@ -117,16 +117,9 @@ export function Badge({
   );
 }
 
-/** Status pill pairs a dot shape + label (never color alone). */
+/** Status pill is a tone-colored text label only — no glyph decorations. */
 export function StatusPill({ label, tone = "neutral" }: { label: string; tone?: Tone }) {
-  const dot =
-    tone === "danger" ? "●" : tone === "accent" ? "◐" : tone === "success" ? "✓" : "○";
-  return (
-    <Badge tone={tone}>
-      <span aria-hidden>{dot}</span>
-      <span>{label}</span>
-    </Badge>
-  );
+  return <Badge tone={tone}>{label}</Badge>;
 }
 
 /* ------------------------------ Skeletons -------------------------------- */
@@ -176,7 +169,6 @@ export function EmptyState({
 }) {
   return (
     <div className="surface-inset flex flex-col items-center gap-2 px-6 py-10 text-center">
-      <span aria-hidden className="text-2xl text-[color:var(--navy-45)]">◇</span>
       <p className="text-sm font-semibold text-[color:var(--brand-navy)]">{title}</p>
       {description && <p className="max-w-sm text-xs text-[color:var(--navy-45)]">{description}</p>}
       {action}
@@ -193,7 +185,6 @@ export function ErrorState({
 }) {
   return (
     <div className="surface-inset flex flex-col items-center gap-3 px-6 py-8 text-center">
-      <span aria-hidden className="text-xl text-[color:var(--brand-red)]">▲</span>
       <p className="text-sm font-semibold text-[color:var(--brand-navy)]">{message}</p>
       {onRetry && (
         <Button variant="secondary" onClick={onRetry}>
@@ -207,7 +198,6 @@ export function ErrorState({
 export function PermissionDenied({ message = "You do not have permission to view this." }: { message?: string }) {
   return (
     <div className="surface-inset flex flex-col items-center gap-2 px-6 py-10 text-center">
-      <span aria-hidden className="text-xl text-[color:var(--brand-red)]">⛔</span>
       <p className="text-sm font-semibold text-[color:var(--brand-navy)]">{message}</p>
     </div>
   );
