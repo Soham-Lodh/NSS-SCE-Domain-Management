@@ -32,6 +32,7 @@ export const createEventSchema = z
     startAt: z.coerce.date(),
     endAt: z.coerce.date(),
     location: z.string().trim().max(200).optional().nullable(),
+    links: z.array(z.object({ name: z.string().trim().min(1).max(120), url: z.string().url().max(2000) })).max(20).optional(),
   })
   .refine((v) => v.endAt.getTime() > v.startAt.getTime(), {
     message: "End time must be after start time.",
@@ -45,6 +46,7 @@ export const updateEventSchema = z
     startAt: z.coerce.date().optional(),
     endAt: z.coerce.date().optional(),
     location: z.string().trim().max(200).optional().nullable(),
+    links: z.array(z.object({ name: z.string().trim().min(1).max(120), url: z.string().url().max(2000) })).max(20).optional(),
     status: z.enum(["SCHEDULED", "CANCELLED", "ARCHIVED"]).optional(),
   })
   .refine(
@@ -65,7 +67,7 @@ export const assignmentActionSchema = z.discriminatedUnion("action", [
 
 export const roleChangeSchema = z
   .object({
-    role: z.enum(["VOLUNTEER", "DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"]),
+    role: z.enum(["VOLUNTEER", "DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR", "SOCIALS"]),
     domainId: uuid.optional().nullable(),
     projectId: uuid.optional().nullable(),
   })
@@ -117,7 +119,7 @@ export const personUpsertSchema = z
   .object({
     fullName: z.string().trim().min(2).max(150),
     email: z.string().trim().email().max(320),
-    role: z.enum(["VOLUNTEER", "DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"]),
+    role: z.enum(["VOLUNTEER", "DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR", "SOCIALS"]),
     domainId: uuid.optional().nullable(),
     projectId: uuid.optional().nullable(),
   })

@@ -256,6 +256,16 @@ export function useUpdateEvent(id: string) {
   });
 }
 
+export function useDeleteEvent(id: string) {
+  const client = useQueryClient();
+  const feedback = useFeedback();
+  return useMutation({
+    mutationFn: () => apiFetch<{ ok: true }>(`/api/events/${id}`, { method: "DELETE" }),
+    onSuccess: async () => { await invalidate(client, "event"); feedback.success("Event deleted."); },
+    onError: (error) => feedback.error(mutationErrorMessage(error, "Could not delete event.")),
+  });
+}
+
 export function useBulkAssign(eventId: string) {
   const client = useQueryClient();
   const feedback = useFeedback();

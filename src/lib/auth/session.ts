@@ -96,11 +96,21 @@ async function provisionUser(
       create: { fullName: name, emailNormalized: email },
     });
 
-    const created = await tx.appUser.upsert({
-      where: { supabaseAuthUserId },
-      update: { lastLoginAt: new Date() },
-      create: { supabaseAuthUserId, personId: person.id, lastLoginAt: new Date() },
-    });
+    // A person may already have an AppUser linked to an older Supabase auth
+    // identity (for example after an account was recreated). Resolve by the
+    // stable person link first so the unique person_id constraint cannot turn
+    // a valid login into a 500.
+    const linkedAppUser = await tx.appUser.findUnique({ where: { personId: person.id } });
+    const created = linkedAppUser
+      ? await tx.appUser.update({
+          where: { id: linkedAppUser.id },
+          data: { supabaseAuthUserId, lastLoginAt: new Date() },
+        })
+      : await tx.appUser.upsert({
+          where: { supabaseAuthUserId },
+          update: { lastLoginAt: new Date() },
+          create: { supabaseAuthUserId, personId: person.id, lastLoginAt: new Date() },
+        });
 
     const existingGrants = await tx.roleGrant.count({
       where: { appUserId: created.id, isActive: true },

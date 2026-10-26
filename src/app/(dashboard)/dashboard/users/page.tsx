@@ -331,6 +331,7 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
             <option value="DOMAIN_LEAD">Domain Lead</option>
             <option value="TECH_TEAM">Tech Team</option>
             <option value="COORDINATOR">Coordinator</option>
+            <option value="SOCIALS">Socials</option>
           </Select>
         </Field>
         {needsDomain && (
@@ -359,7 +360,7 @@ function AddPersonModal({ onClose }: { onClose: () => void }) {
         )}
         {message && <p className="text-xs font-medium text-[color:var(--brand-navy)]">{message}</p>}
         <p className="text-[11px] text-[color:var(--navy-45)]">
-          Tech team can add tech team members; only coordinators can add coordinators. Everything is audited.
+          Coordinators and tech team can add Socials members. Socials members have view-only access to events across all domains. Everything is audited.
         </p>
       </div>
     </Modal>
@@ -419,6 +420,7 @@ function RoleModal({ user, onClose }: { user: UserRowDTO; onClose: () => void })
             <option value="DOMAIN_LEAD">Domain Lead</option>
             <option value="TECH_TEAM">Tech Team</option>
             <option value="COORDINATOR">Coordinator</option>
+            <option value="SOCIALS">Socials</option>
           </Select>
         </Field>
         {(role === "DOMAIN_LEAD" || role === "VOLUNTEER") && (

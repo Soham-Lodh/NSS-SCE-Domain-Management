@@ -3,7 +3,7 @@ import { parseBody, parseQuery, protectedRoute } from "@/lib/api/route";
 import {
   requireAuthContext,
   assertCanOperateEvents,
-  resolveDomainScope,
+  resolveEventDomainScope,
   assertSameOrigin,
 } from "@/lib/authorization/require";
 import { createEventSchema, eventListQuery, paginationQuery } from "@/lib/validation/schemas";
@@ -16,7 +16,7 @@ const listSchema = eventListQuery.merge(paginationQuery);
 export const GET = protectedRoute(async (req, requestId) => {
   const ctx = await requireAuthContext({ requestId, provision: true });
   const filters = parseQuery(req, listSchema);
-  const domainId = resolveDomainScope(ctx, filters.domainId);
+  const domainId = resolveEventDomainScope(ctx, filters.domainId);
   const result = await listEvents({
     domainId,
     category: filters.category,

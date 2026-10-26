@@ -54,6 +54,10 @@ export default function VolunteersPage() {
       id: "a9975a53-fd65-4ed7-9044-c1d3715af08c",
       name: "Video Editing",
     },
+    {
+      id: "a04a8ae8-dfc0-4197-b707-e6c43f7cb3ad",
+      name: "Photography",
+    }
   ] as const;
 
   const PROJECTS = [

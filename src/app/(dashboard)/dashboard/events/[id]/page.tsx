@@ -23,6 +23,8 @@ import {
   useBulkAssign,
   useEventDetail,
   useEventLifecycle,
+  useDeleteEvent,
+  useUpdateEvent,
   useEvents,
   useMe,
   useVolunteers,
@@ -31,6 +33,11 @@ import { ApiClientError } from "@/lib/http/client";
 import { formatDateTime } from "@/lib/utils/datetime";
 import type { AssignmentDTO, BulkAssignSummaryDTO, EventDetailDTO } from "@/lib/types/api";
 
+function normalizeEventLink(link: { name: string; url: string }) {
+  const url = link.url.trim();
+  return { name: link.name.trim(), url: /^https?:\/\//i.test(url) ? url : `https://${url}` };
+}
+
 export default function EventDetailPage() {
   const params = useParams<{ id: string }>();
   const eventId = params.id;
@@ -38,6 +45,9 @@ export default function EventDetailPage() {
   const query = useEventDetail(eventId);
   const event = query.data;
   const canOperate = !!event && (me.data?.roles.includes("DOMAIN_LEAD") ?? false) && (me.data?.domainIds ?? []).includes(event.domainId);
+  const remove = useDeleteEvent(eventId);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const [assigning, setAssigning] = useState(false);
   const lifecycle = useEventLifecycle(eventId);
@@ -59,6 +69,8 @@ export default function EventDetailPage() {
                 {isEnded ? "Re-open task" : "End task"}
               </Button>
             )}
+            {canOperate && event && <Button variant="danger" onClick={() => setConfirmDelete(true)}>Delete event</Button>}
+            {canOperate && event && <Button variant="secondary" onClick={() => setEditing(true)}>Edit event</Button>}
             <Link href="/dashboard/events" className="btn btn-secondary">
               Back
             </Link>
@@ -124,6 +136,12 @@ export default function EventDetailPage() {
       {canOperate && event && !isEnded && (
         <BulkAssignModal open={assigning} onClose={() => setAssigning(false)} eventId={eventId} domainId={event.domainId} />
       )}
+      {confirmDelete && event && (
+        <Modal open onClose={() => setConfirmDelete(false)} title="Delete event?" footer={<><Button variant="secondary" onClick={() => setConfirmDelete(false)}>Cancel</Button><Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate(undefined, { onSuccess: () => setConfirmDelete(false) })}>Confirm delete</Button></>}>
+          <p>This permanently deletes <strong>{event.title}</strong>, its assignments, and assignment history. The action is audited.</p>
+        </Modal>
+      )}
+      {editing && event && <EditEventModal event={event} onClose={() => setEditing(false)} />}
     </div>
   );
 }
@@ -153,8 +171,36 @@ function EventMeta({ event }: { event: EventDetailDTO }) {
       {event.description && (
         <div className="surface-inset mt-2 p-3 text-xs text-[color:var(--navy-70)]">{event.description}</div>
       )}
+      {event.links.length > 0 && (
+        <div className="mt-3 space-y-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-[color:var(--navy-45)]">Resources</p>
+          {event.links.map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="block text-xs font-semibold text-[color:var(--brand-blue)] hover:underline">{link.name}</a>)}
+        </div>
+      )}
     </dl>
   );
+}
+
+function EditEventModal({ event, onClose }: { event: EventDetailDTO; onClose: () => void }) {
+  const update = useUpdateEvent(event.id);
+  const [form, setForm] = useState({ title: event.title, description: event.description ?? "", location: event.location ?? "", startAt: new Date(event.startAt).toISOString().slice(0, 16), endAt: new Date(event.endAt).toISOString().slice(0, 16), links: event.links.map(({ name, url }) => ({ name, url })) });
+  const [error, setError] = useState<string | null>(null);
+  function submit() {
+    setError(null);
+    update.mutate({ title: form.title, description: form.description || null, location: form.location || null, startAt: new Date(form.startAt).toISOString(), endAt: new Date(form.endAt).toISOString(), links: form.links.filter((link) => link.name.trim() && link.url.trim()).map(normalizeEventLink) }, { onSuccess: onClose, onError: (e) => setError(e instanceof ApiClientError ? e.message : "Could not update event.") });
+  }
+  return <Modal open onClose={onClose} title="Edit event" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={submit} loading={update.isPending} disabled={!form.title || !form.startAt || !form.endAt}>Save changes</Button></>}>
+    <div className="space-y-3">
+      <Field label="Title"><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></Field>
+      <Field label="Description"><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
+      <Field label="Location"><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></Field>
+      <div className="grid gap-3 sm:grid-cols-2"><Field label="Starts at"><Input type="datetime-local" value={form.startAt} onChange={(e) => setForm({ ...form, startAt: e.target.value })} /></Field><Field label="Ends at"><Input type="datetime-local" value={form.endAt} onChange={(e) => setForm({ ...form, endAt: e.target.value })} /></Field></div>
+      <Field label="Event links" hint="Edit names/URLs, remove old links, or add new ones.">
+        <div className="space-y-2">{form.links.map((link, index) => <div key={index} className="flex gap-2"><Input placeholder="Link name" value={link.name} onChange={(e) => setForm({ ...form, links: form.links.map((item, i) => i === index ? { ...item, name: e.target.value } : item) })} /><Input placeholder="https://..." value={link.url} onChange={(e) => setForm({ ...form, links: form.links.map((item, i) => i === index ? { ...item, url: e.target.value } : item) })} /><Button variant="secondary" onClick={() => setForm({ ...form, links: form.links.filter((_, i) => i !== index) })}>Remove</Button></div>)}<Button variant="secondary" onClick={() => setForm({ ...form, links: [...form.links, { name: "", url: "" }] })}>+ Add link</Button></div>
+      </Field>
+      {error && <p className="text-xs text-[color:var(--brand-red)]">{error}</p>}
+    </div>
+  </Modal>;
 }
 
 function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {

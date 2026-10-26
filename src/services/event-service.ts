@@ -174,6 +174,7 @@ export async function getEventDetail(domainId: string, eventId: string) {
         },
         orderBy: { assignedAt: "asc" },
       },
+      links: { select: { id: true, name: true, url: true }, orderBy: { createdAt: "asc" } },
     },
   });
   if (!event) throw notFound("Event not found.");
@@ -206,6 +207,7 @@ export async function createEvent(args: {
         location: input.location ?? null,
         startAt: input.startAt,
         endAt: input.endAt,
+        links: input.links?.length ? { create: input.links } : undefined,
         status: "SCHEDULED",
         createdByAppUserId: actorAppUserId,
       },
@@ -241,6 +243,7 @@ export async function updateEvent(args: {
     startAt?: Date;
     endAt?: Date;
     location?: string | null;
+    links?: { name: string; url: string }[];
     status?: "SCHEDULED" | "CANCELLED" | "ARCHIVED";
   };
 }): Promise<void> {
@@ -282,6 +285,10 @@ export async function updateEvent(args: {
           ...(data.status !== undefined ? { status: data.status } : {}),
         },
       });
+      if (data.links !== undefined) {
+        await tx.eventLink.deleteMany({ where: { eventId } });
+        if (data.links.length) await tx.eventLink.createMany({ data: data.links.map((link) => ({ eventId, name: link.name, url: link.url })) });
+      }
 
       const after = {
         title: data.title ?? existing.title,
@@ -318,6 +325,20 @@ export async function updateEvent(args: {
     },
     { requestId, action: "updateEvent" },
   );
+}
+
+export async function deleteEvent(args: { domainId: string; eventId: string; actorAppUserId: string; requestId: string }): Promise<void> {
+  const { domainId, eventId, actorAppUserId, requestId } = args;
+  await prisma.$transaction(async (tx) => {
+    const event = await tx.event.findFirst({ where: { id: eventId, domainId }, select: { id: true, title: true } });
+    if (!event) throw notFound("Event not found.");
+    const assignments = await tx.eventAssignment.findMany({ where: { eventId }, select: { id: true } });
+    const ids = assignments.map((a) => a.id);
+    if (ids.length) await tx.assignmentHistory.deleteMany({ where: { assignmentId: { in: ids } } });
+    await tx.eventAssignment.deleteMany({ where: { eventId } });
+    await tx.event.delete({ where: { id: eventId } });
+    await writeAudit(tx, { actorAppUserId, action: "EVENT_DELETED", targetType: "Event", targetId: eventId, domainId, requestId, before: { title: event.title } });
+  });
 }
 
 /**

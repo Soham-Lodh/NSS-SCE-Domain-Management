@@ -36,7 +36,7 @@ export async function listUsers(args: {
     roleGrants: {
       some: {
         isActive: true,
-        role: { in: ["COORDINATOR", "TECH_TEAM", "DOMAIN_LEAD"] },
+        role: { in: ["COORDINATOR", "TECH_TEAM", "DOMAIN_LEAD", "SOCIALS"] },
       },
     },
     ...(search

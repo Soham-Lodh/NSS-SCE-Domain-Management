@@ -15,7 +15,7 @@ type NavItem = { href: string; label: string; roles: AppRole[] | "ALL" };
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", roles: "ALL" },
   { href: "/dashboard/volunteers", label: "Volunteers", roles: ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"] },
-  { href: "/dashboard/events", label: "Events", roles: ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"] },
+  { href: "/dashboard/events", label: "Events", roles: ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR", "SOCIALS"] },
   { href: "/dashboard/domains", label: "Domains", roles: ["TECH_TEAM", "COORDINATOR"] },
   { href: "/dashboard/users", label: "Users & Roles", roles: ["TECH_TEAM", "COORDINATOR"] },
   { href: "/dashboard/email-logs", label: "Email Logs", roles: ["TECH_TEAM", "COORDINATOR"] },

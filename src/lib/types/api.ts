@@ -75,6 +75,7 @@ export type EventDetailDTO = {
   domain: { id: string; name: string };
   createdBy: { person: { fullName: string } };
   assignments: AssignmentDTO[];
+  links: { id: string; name: string; url: string }[];
 };
 
 export type VolunteerDetailDTO = {

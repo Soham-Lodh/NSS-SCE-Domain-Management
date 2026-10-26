@@ -49,7 +49,6 @@ export type ReminderRunResult = {
 export async function runDeadlineReminders(now: Date = new Date()): Promise<ReminderRunResult> {
   const fourDayEnd = new Date(now.getTime() + FOUR_DAYS);
   const oneDayEnd = new Date(now.getTime() + ONE_DAY);
-  const oneHourEnd = new Date(now.getTime() + ONE_HOUR);
 
   // SINGLE indexed scan instead of three overlapping ones: the 4-day window is
   // the widest of the three, so one pass over (status = SCHEDULED, endAt in
@@ -61,10 +60,10 @@ export async function runDeadlineReminders(now: Date = new Date()): Promise<Remi
     where: {
       status: "SCHEDULED" as const,
       endAt: { gt: now, lte: fourDayEnd },
-      OR: [{ reminder4dSentAt: null }, { reminder24hSentAt: null }, { reminder1hSentAt: null }],
+      OR: [{ reminder4dSentAt: null }, { reminder24hSentAt: null }],
       assignments: { some: { removedAt: null, status: "ASSIGNED" as const } },
     },
-    select: { id: true, reminder4dSentAt: true, reminder24hSentAt: true, reminder1hSentAt: true, endAt: true },
+    select: { id: true, reminder4dSentAt: true, reminder24hSentAt: true, startAt: true, endAt: true },
     orderBy: { endAt: "asc" },
     take: 800,
   });
@@ -72,31 +71,33 @@ export async function runDeadlineReminders(now: Date = new Date()): Promise<Remi
   // Classify per stage in memory (strictly narrower than the fetched window).
   const fourDayEvents: string[] = [];
   const oneDayEvents: string[] = [];
-  const oneHourEvents: string[] = [];
   for (const c of candidates) {
     if (!c.reminder4dSentAt && c.endAt.getTime() <= fourDayEnd.getTime()) fourDayEvents.push(c.id);
     if (!c.reminder24hSentAt && c.endAt.getTime() <= oneDayEnd.getTime()) oneDayEvents.push(c.id);
-    if (!c.reminder1hSentAt && c.endAt.getTime() <= oneHourEnd.getTime()) oneHourEvents.push(c.id);
   }
 
   // Fetch full event payloads (with active assignments) only for events that
   // actually reached a stage boundary, in one bounded batch per stage.
-  const [loaded4d, loaded24h, loaded1h] = await Promise.all(
-    [fourDayEvents, oneDayEvents, oneHourEvents].map(loadRemindableEvents),
+  const [loaded4d, loaded24h] = await Promise.all(
+    [fourDayEvents, oneDayEvents].map(loadRemindableEvents),
   );
 
   let emailsQueued = 0;
-  const missedByStage = { "4d": 0, "24h": 0, "1h": 0 };
+  const missedByStage = { "4d": 0, "24h": 0 };
 
   for (const [stage, events] of [
     ["4d", loaded4d] as const,
     ["24h", loaded24h] as const,
-    ["1h", loaded1h] as const,
   ]) {
-    const windowMs = stage === "4d" ? FOUR_DAYS : stage === "24h" ? ONE_DAY : ONE_HOUR;
+    const windowMs = stage === "4d" ? FOUR_DAYS : ONE_DAY;
     const tolerance = STAGE_TOLERANCE_MS[stage];
 
     for (const event of events.slice(0, 200)) {
+      // Very short events are record-only for reminder purposes. Assignment
+      // confirmation mail is still sent, but no deadline reminder is queued.
+      if (event.startAt && event.endAt && event.endAt.getTime() - event.startAt.getTime() <= ONE_HOUR) {
+        continue;
+      }
       // Missed-window check: if the deadline is closer than (window - tolerance)
       // and this stage was never queued, the stage cannot retire on time.
       const stageDueAt = event.endAt.getTime() - windowMs;
@@ -131,9 +132,7 @@ export async function runDeadlineReminders(now: Date = new Date()): Promise<Remi
         const queued = await prisma.$transaction(async (tx) => {
           let n = 0;
           for (const a of event.assignments) {
-            const eventType = stage === "4d" ? "EVENT_REMINDER_4D"
-              : stage === "24h" ? "EVENT_REMINDER_24H"
-              : "EVENT_REMINDER_1H";
+            const eventType = stage === "4d" ? "EVENT_REMINDER_4D" : "EVENT_REMINDER_24H";
             const templateKey = eventType;
             await enqueueEmail(tx, {
               eventType,
@@ -145,7 +144,7 @@ export async function runDeadlineReminders(now: Date = new Date()): Promise<Remi
                 domain: event.domain.name,
                 startAt: event.startAt.toISOString(),
                 deadline: event.endAt.toISOString(),
-                ...(stage === "1h" ? { hoursLeft } : { daysLeft }),
+                daysLeft,
                 ...(event.description ? { description: event.description } : {}),
                 ...(event.location ? { location: event.location } : {}),
                 eventId: event.id,
@@ -192,10 +191,10 @@ export async function runDeadlineReminders(now: Date = new Date()): Promise<Remi
   return {
     fourDayEvents: fourDayEvents.length,
     oneDayEvents: oneDayEvents.length,
-    oneHourEvents: oneHourEvents.length,
+    oneHourEvents: 0,
     fourDayMissed: missedByStage["4d"],
     oneDayMissed: missedByStage["24h"],
-    oneHourMissed: missedByStage["1h"],
+    oneHourMissed: 0,
     emailsQueued,
   };
 }
@@ -231,11 +230,13 @@ export async function queueDueRemindersForReactivatedAssignment(
   assignmentId: string,
   person: { fullName: string; emailNormalized: string },
 ): Promise<void> {
+  // Short events may still send the assignment confirmation, but never send
+  // deadline reminders (including the legacy 1-hour stage).
+  if (event.endAt.getTime() - event.startAt.getTime() <= ONE_HOUR) return;
   const now = Date.now();
   for (const [stage, windowMs, typeName] of [
     ["4d", FOUR_DAYS, "EVENT_REMINDER_4D"],
     ["24h", ONE_DAY, "EVENT_REMINDER_24H"],
-    ["1h", ONE_HOUR, "EVENT_REMINDER_1H"],
   ] as const) {
     const stageDueAt = event.endAt.getTime() - windowMs;
     if (now < stageDueAt) continue; // window not open yet — scan will queue it
@@ -251,9 +252,7 @@ export async function queueDueRemindersForReactivatedAssignment(
         domain: event.domain?.name ?? "",
         startAt: event.startAt.toISOString(),
         deadline: event.endAt.toISOString(),
-        ...(stage === "1h"
-          ? { hoursLeft: Math.max(0, Math.round((event.endAt.getTime() - now) / ONE_HOUR)) }
-          : { daysLeft: Math.max(0, Math.round((event.endAt.getTime() - now) / DAY)) }),
+        daysLeft: Math.max(0, Math.round((event.endAt.getTime() - now) / DAY)),
         ...(event.description ? { description: event.description } : {}),
         ...(event.location ? { location: event.location } : {}),
         eventId: event.id,

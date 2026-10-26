@@ -90,24 +90,24 @@ describe("decideDelivery — deadline reminders", () => {
     expect(d.action).toBe("send");
   });
 
-  it("sends the 1-hour reminder once inside the window", () => {
+  it("suppresses the removed 1-hour reminder", () => {
     const d = decideDelivery({
       template: "EVENT_REMINDER_1H",
       now: new Date(end.getTime() - 30 * 60_000),
       event: scheduled(start, end),
       assignment: active,
     });
-    expect(d.action).toBe("send");
+    expect(d.action).toBe("suppress");
   });
 
-  it("defers the 1-hour reminder before its window", () => {
+  it("does not defer the removed 1-hour reminder", () => {
     const d = decideDelivery({
       template: "EVENT_REMINDER_1H",
       now,
       event: scheduled(start, end),
       assignment: active,
     });
-    expect(d.action).toBe("defer");
+    expect(d.action).toBe("suppress");
   });
 
   it("re-defers when the deadline was pushed outside the window after queueing", () => {

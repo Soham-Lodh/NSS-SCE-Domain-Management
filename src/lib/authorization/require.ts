@@ -16,6 +16,8 @@ import {
 import { allowedOrigins, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/observability/logger";
 
+export const PHOTOGRAPHY_DOMAIN_ID = "a04a8ae8-dfc0-4197-b707-e6c43f7cb3ad";
+
 /**
  * Resolve the context for a portal API route or throw.
  * - 401 when there is no verified, provisioned session.
@@ -88,6 +90,26 @@ export function resolveDomainScope(ctx: AuthContext, requestedDomainId?: string)
 export function assertCanOperateEvents(ctx: AuthContext, domainId: string): void {
   if (!canOperateEvents(ctx.roles)) throw forbidden();
   if (!ctx.domainIds.includes(domainId)) throw forbidden();
+}
+
+/** Event read access: domain leads may also view Photography events. */
+export function assertCanViewEvents(ctx: AuthContext, domainId: string): void {
+  if (canViewAllDomains(ctx.roles)) return;
+  if (canOperateEvents(ctx.roles) && (ctx.domainIds.includes(domainId) || domainId === PHOTOGRAPHY_DOMAIN_ID)) return;
+  throw forbidden();
+}
+
+/** Resolve an event-list domain while preserving normal domain scoping elsewhere. */
+export function resolveEventDomainScope(ctx: AuthContext, requestedDomainId?: string): string {
+  if (canViewAllDomains(ctx.roles)) {
+    if (!requestedDomainId) throw forbidden("A domain must be specified.");
+    return requestedDomainId;
+  }
+  if (canOperateEvents(ctx.roles) && ctx.domainIds.length > 0) {
+    const domainId = requestedDomainId ?? ctx.domainIds[0];
+    if (ctx.domainIds.includes(domainId) || domainId === PHOTOGRAPHY_DOMAIN_ID) return domainId;
+  }
+  throw forbidden();
 }
 
 /**

@@ -27,7 +27,6 @@ const HOUR = 60 * 60 * 1000;
 export const REMINDER_WINDOWS: Partial<Record<string, number>> = {
   EVENT_REMINDER_4D: 4 * DAY,
   EVENT_REMINDER_24H: DAY,
-  EVENT_REMINDER_1H: HOUR,
 };
 
 
@@ -94,6 +93,9 @@ export function decideDelivery(ctx: DeliveryContext): DeliveryDecision {
   if (template === "EVENT_STARTED") {
     if (event === undefined) return suppress("The start notice has no verifiable event reference.");
     if (event.status !== "SCHEDULED") return suppress(statusReason(event.status));
+    if (event.endAt.getTime() - event.startAt.getTime() <= HOUR) {
+      return suppress("Short events do not send start or reminder emails.");
+    }
     if (assignment === null) return suppress("The assignment no longer exists.");
     if (assignment !== undefined && assignment.removedAt !== null) {
       return suppress("The member was removed from the event before delivery.");
@@ -114,6 +116,10 @@ export function decideDelivery(ctx: DeliveryContext): DeliveryDecision {
     return { action: "send" };
   }
 
+  if (template === "EVENT_REMINDER_1H") {
+    return suppress("The 1-hour reminder service has been removed.");
+  }
+
   // ---- Deadline reminders: strictly inside their window, strictly pre-deadline ----
   if (reminderWindow !== undefined) {
     if (assignment === null) return suppress("The assignment no longer exists.");
@@ -125,6 +131,9 @@ export function decideDelivery(ctx: DeliveryContext): DeliveryDecision {
     }
     if (event !== undefined) {
       if (event.status !== "SCHEDULED") return suppress(statusReason(event.status));
+      if (event.endAt.getTime() - event.startAt.getTime() <= HOUR) {
+        return suppress("Short events do not send reminder emails.");
+      }
       if (now.getTime() >= event.endAt.getTime()) {
         return suppress("The deadline already passed before delivery.");
       }

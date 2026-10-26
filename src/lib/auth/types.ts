@@ -1,4 +1,4 @@
-export type AppRole = "VOLUNTEER" | "DOMAIN_LEAD" | "TECH_TEAM" | "COORDINATOR";
+export type AppRole = "VOLUNTEER" | "DOMAIN_LEAD" | "TECH_TEAM" | "COORDINATOR" | "SOCIALS";
 
 export type RoleGrantView = {
   role: AppRole;
@@ -31,6 +31,7 @@ export type AuthContext = {
 export const ROLE_PRECEDENCE: AppRole[] = [
   "COORDINATOR",
   "TECH_TEAM",
+  "SOCIALS",
   "DOMAIN_LEAD",
   "VOLUNTEER",
 ];
@@ -40,4 +41,5 @@ export const ROLE_LABELS: Record<AppRole, string> = {
   DOMAIN_LEAD: "Domain Lead",
   TECH_TEAM: "Tech Team",
   COORDINATOR: "Coordinator",
+  SOCIALS: "Socials",
 };

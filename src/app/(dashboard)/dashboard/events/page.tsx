@@ -22,6 +22,11 @@ import type { EventCardDTO } from "@/lib/types/api";
 
 type Tab = "ALL" | "UPCOMING" | "ONGOING" | "PAST" | "COMPLETED" | "CANCELLED";
 
+function normalizeEventLink(link: { name: string; url: string }) {
+  const url = link.url.trim();
+  return { name: link.name.trim(), url: /^https?:\/\//i.test(url) ? url : `https://${url}` };
+}
+
 function toneFor(cat: EventCardDTO["category"]) {
   if (cat === "CANCELLED") return "danger" as const;
   if (cat === "COMPLETED") return "success" as const;
@@ -45,16 +50,22 @@ export default function EventsPage() {
     id: "a9975a53-fd65-4ed7-9044-c1d3715af08c",
     name: "Video Editing",
   },
+  {
+      id:"a04a8ae8-dfc0-4197-b707-e6c43f7cb3ad",
+      name:"Photography",
+    }
 ] as const;
   const leadDomainIds = me.data?.domainIds ?? [];
   const isDomainLead = me.data?.roles.includes("DOMAIN_LEAD") ?? false;
   const isOversight = !!me.data && (me.data.roles.includes("TECH_TEAM") || me.data.roles.includes("COORDINATOR"));
+  const canViewAllDomains = !!me.data && (isOversight || me.data.roles.includes("SOCIALS"));
 
   const [tab, setTab] = useState<Tab>("ALL");
   const [selectedDomain, setSelectedDomain] = useState("");
   const [creating, setCreating] = useState(false);
 
-  const mustChooseDomain = isOversight || leadDomainIds.length > 1;
+  const canViewPhotography = isDomainLead;
+  const mustChooseDomain = canViewAllDomains || isDomainLead || leadDomainIds.length > 1;
   const effectiveDomainId = mustChooseDomain ? selectedDomain || undefined : leadDomainIds[0];
   const canOperate = !!effectiveDomainId && isDomainLead && leadDomainIds.includes(effectiveDomainId);
   const waitingForDomainSelection = mustChooseDomain && !effectiveDomainId;
@@ -91,7 +102,7 @@ export default function EventsPage() {
           <Field label="Domain">
             <Select value={selectedDomain} onChange={(e) => setSelectedDomain(e.target.value)}>
               <option value="">Select a domain</option>
-              {DOMAINS.map((d) => (
+              {DOMAINS.filter((d) => canViewAllDomains || leadDomainIds.includes(d.id) || (canViewPhotography && d.name === "Photography")).map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
                 </option>
@@ -176,7 +187,7 @@ function CreateEventModal({
   domainId: string;
 }) {
   const create = useCreateEvent();
-  const [form, setForm] = useState({ title: "", description: "", location: "", startAt: "", endAt: "" });
+  const [form, setForm] = useState({ title: "", description: "", location: "", startAt: "", endAt: "", links: [] as { name: string; url: string }[] });
   const [message, setMessage] = useState<string | null>(null);
 
   function submit() {
@@ -189,6 +200,7 @@ function CreateEventModal({
         location: form.location || null,
         startAt: new Date(form.startAt).toISOString(),
         endAt: new Date(form.endAt).toISOString(),
+        links: form.links.filter((link) => link.name.trim() && link.url.trim()).map(normalizeEventLink),
       },
       {
         onSuccess: () => {
@@ -236,6 +248,18 @@ function CreateEventModal({
             <Input type="datetime-local" value={form.endAt} onChange={(e) => setForm({ ...form, endAt: e.target.value })} />
           </Field>
         </div>
+        <Field label="Drive links" hint="Optional. Add a name and the full link.">
+          <div className="space-y-2">
+            {form.links.map((link, index) => (
+              <div key={index} className="flex gap-2">
+                <Input placeholder="Link name" value={link.name} onChange={(e) => setForm({ ...form, links: form.links.map((item, i) => i === index ? { ...item, name: e.target.value } : item) })} />
+                <Input placeholder="https://drive.google.com/..." value={link.url} onChange={(e) => setForm({ ...form, links: form.links.map((item, i) => i === index ? { ...item, url: e.target.value } : item) })} />
+                <Button variant="secondary" onClick={() => setForm({ ...form, links: form.links.filter((_, i) => i !== index) })}>Remove</Button>
+              </div>
+            ))}
+            <Button variant="secondary" onClick={() => setForm({ ...form, links: [...form.links, { name: "", url: "" }] })}>+ Add link</Button>
+          </div>
+        </Field>
         {message && <p className="text-xs font-medium text-[color:var(--brand-navy)]">{message}</p>}
       </div>
     </Modal>

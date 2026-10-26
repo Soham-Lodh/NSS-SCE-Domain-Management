@@ -41,7 +41,7 @@ export function domainLeadDomainIds(grants: RoleGrantView[]): string[] {
  * email (reminders, assignments) and never sign in to the site; anyone without
  * one of these grants is sent to the unauthorized page.
  */
-export const PORTAL_ROLES: AppRole[] = ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR"];
+export const PORTAL_ROLES: AppRole[] = ["DOMAIN_LEAD", "TECH_TEAM", "COORDINATOR", "SOCIALS"];
 
 export function hasPortalAccess(roles: AppRole[]): boolean {
   return roles.some((role) => PORTAL_ROLES.includes(role));
@@ -49,7 +49,7 @@ export function hasPortalAccess(roles: AppRole[]): boolean {
 
 /** Cross-domain read/oversight (not event operation). */
 export function canViewAllDomains(roles: AppRole[]): boolean {
-  return roles.includes("TECH_TEAM") || roles.includes("COORDINATOR");
+  return roles.includes("TECH_TEAM") || roles.includes("COORDINATOR") || roles.includes("SOCIALS");
 }
 
 /** Event CRUD / assignment / completion — only for an active Domain Lead. */
@@ -102,6 +102,9 @@ export function canManageRole(
   }
   if (targetRole === "TECH_TEAM") {
     return action === "ADD" ? canAddTechTeam(actorRoles) : canRemoveTechTeam(actorRoles);
+  }
+  if (targetRole === "SOCIALS") {
+    return canAddTechTeam(actorRoles);
   }
   // VOLUNTEER / DOMAIN_LEAD
   return canManageVolunteerMaster(actorRoles);

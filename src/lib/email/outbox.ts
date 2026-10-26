@@ -154,7 +154,7 @@ function renderBody(template: EmailTemplateKey, payload: Record<string, unknown>
 
   // Build detail rows (skip internal ID/metadata fields and digest arrays)
   const skipKeys = new Set([
-    "fullName", "eventId", "domainId", "assignmentId", "volunteerMembershipId", "monthKey", "events",
+    "fullName", "eventId", "domainId", "assignmentId", "volunteerMembershipId", "monthKey", "events", "links",
   ]);
   const details = Object.entries(payload)
     .filter(([k, v]) => !skipKeys.has(k) && (typeof v === "string" || typeof v === "number"))
@@ -164,6 +164,9 @@ function renderBody(template: EmailTemplateKey, payload: Record<string, unknown>
     .map((d) => `<tr><td style="padding:8px 14px 8px 0;color:#6B7280;font-size:14px;white-space:nowrap;vertical-align:top;font-weight:500">${escapeHtml(d.label)}</td><td style="padding:8px 0;color:#1F2937;font-size:14px">${escapeHtml(d.value)}</td></tr>`)
     .join("");
   const detailText = details.map((d) => `${d.label}: ${d.value}`).join("\n");
+  const links = Array.isArray(payload.links) ? payload.links.filter((link): link is { name: string; url: string } => !!link && typeof link === "object" && typeof (link as { name?: unknown }).name === "string" && typeof (link as { url?: unknown }).url === "string") : [];
+  const linksHtml = links.length ? `<div style="margin:16px 0"><p style="font-weight:600;color:#1F2937">Event links</p><ul>${links.map((link) => `<li><a href="${escapeHtml(link.url)}">${escapeHtml(link.name)}</a></li>`).join("")}</ul></div>` : "";
+  const linksText = links.length ? `\n\nEvent links:\n${links.map((link) => `- ${link.name}: ${link.url}`).join("\n")}` : "";
 
   const greeting = `<p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.6">Dear ${escapeHtml(fullName)},</p>`;
 
@@ -243,8 +246,8 @@ function renderBody(template: EmailTemplateKey, payload: Record<string, unknown>
        </div>`
     : "";
 
-  const bodyHtml = `${messageHtml}${tableHtml}`;
-  const bodyText = `${messageText}\n\n${detailText}`;
+  const bodyHtml = `${messageHtml}${tableHtml}${linksHtml}`;
+  const bodyText = `${messageText}\n\n${detailText}${linksText}`;
   return emailShell(subject, bodyHtml, bodyText);
 }
 
@@ -270,17 +273,28 @@ export async function enqueueEmail(
   },
 ): Promise<boolean> {
   try {
+    const eventId = typeof args.payload.eventId === "string" ? args.payload.eventId : null;
+    const payload = eventId
+      ? {
+          ...args.payload,
+          links: await tx.eventLink.findMany({
+            where: { eventId },
+            select: { name: true, url: true },
+            orderBy: { createdAt: "asc" },
+          }),
+        }
+      : args.payload;
     const created = await tx.emailOutbox.create({
       data: {
         eventType: args.eventType,
         templateKey: args.templateKey,
         recipient: args.recipient,
-        payloadJson: args.payload as Prisma.InputJsonValue,
+        payloadJson: payload as Prisma.InputJsonValue,
         status: "PENDING",
         nextAttemptAt: args.nextAttemptAt ?? new Date(),
         idempotencyKey: args.idempotencyKey ?? null,
-        eventId: typeof args.payload.eventId === "string" ? args.payload.eventId : null,
-        assignmentId: typeof args.payload.assignmentId === "string" ? args.payload.assignmentId : null,
+        eventId,
+        assignmentId: typeof payload.assignmentId === "string" ? payload.assignmentId : null,
       },
       select: { id: true },
     });
@@ -298,10 +312,10 @@ export async function enqueueEmail(
           subject: SUBJECTS[args.templateKey] ?? null,
           status: "QUEUED",
           attemptNumber: 0,
-          eventId: typeof args.payload.eventId === "string" ? args.payload.eventId : null,
-          domainId: typeof args.payload.domainId === "string" ? args.payload.domainId : null,
-          assignmentId: typeof args.payload.assignmentId === "string" ? args.payload.assignmentId : null,
-          monthKey: typeof args.payload.monthKey === "string" ? args.payload.monthKey : null,
+          eventId,
+          domainId: typeof payload.domainId === "string" ? payload.domainId : null,
+          assignmentId: typeof payload.assignmentId === "string" ? payload.assignmentId : null,
+          monthKey: typeof payload.monthKey === "string" ? payload.monthKey : null,
         },
       });
     } catch {
@@ -446,7 +460,7 @@ export async function processOutbox(limit = 25): Promise<{ sent: number; failed:
 
   for (const row of rows) {
     const template = row.templateKey as EmailTemplateKey;
-    const payload = (row.payloadJson ?? {}) as Record<string, unknown>;
+    let payload = (row.payloadJson ?? {}) as Record<string, unknown>;
     const domainId = typeof payload.domainId === "string" ? payload.domainId : null;
     const eventId = typeof payload.eventId === "string" ? payload.eventId : null;
     const assignmentId = typeof payload.assignmentId === "string" ? payload.assignmentId : null;
@@ -458,6 +472,8 @@ export async function processOutbox(limit = 25): Promise<{ sent: number; failed:
     let assignmentCtx: { status: "ASSIGNED" | "COMPLETED"; removedAt: Date | null } | null | undefined;
 
     if (eventId) {
+      const links = await prisma.eventLink.findMany({ where: { eventId }, select: { name: true, url: true }, orderBy: { createdAt: "asc" } });
+      payload = { ...payload, links };
       eventCtx = await prisma.event.findUnique({
         where: { id: eventId },
         select: { status: true, startAt: true, endAt: true },
